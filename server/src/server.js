@@ -24,6 +24,7 @@ import { couponRouter } from './routes/coupons.js';
 import { affiliateRouter } from './routes/affiliates.js';
 import { funnelRouter } from './routes/funnels.js';
 import { automationRouter } from './routes/automations.js';
+import { customerRouter } from './routes/customer.js';
 
 dotenv.config();
 
@@ -65,6 +66,7 @@ app.use('/api/coupons', couponRouter);
 app.use('/api/affiliates', affiliateRouter);
 app.use('/api/funnels', funnelRouter);
 app.use('/api/automations', automationRouter);
+app.use('/api/customer', customerRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/admin', adminRouter);
 app.use((error, _req, res, _next) => {
