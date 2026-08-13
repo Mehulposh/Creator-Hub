@@ -5,7 +5,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { requireCreator } from '../middleware/creator.js';
 
 export const appointmentRouter = Router();
-const schema = z.object({ clientName: z.string().min(2).max(100), clientEmail: z.string().email(), title: z.string().min(2).max(120), startsAt: z.coerce.date(), duration: z.coerce.number().min(15).max(480).optional(), status: z.enum(['confirmed', 'pending', 'completed', 'cancelled']).optional(), notes: z.string().max(1000).optional() });
+const schema = z.object({ clientName: z.string().min(2).max(100), clientEmail: z.string().email(), title: z.string().min(2).max(120), startsAt: z.coerce.date(), duration: z.coerce.number().min(15).max(480).optional(), status: z.enum(['confirmed', 'pending', 'completed', 'cancelled']).optional(), notes: z.string().max(1000).optional(), joinLink: z.union([z.string().url(), z.literal('')]).optional() });
 appointmentRouter.use(requireAuth, requireCreator);
 appointmentRouter.get('/', async (req, res, next) => { try { res.json(await Appointment.find({ creator: req.auth.sub }).sort({ startsAt: 1 })); } catch (error) { next(error); } });
 appointmentRouter.post('/', async (req, res, next) => { try { res.status(201).json(await Appointment.create({ ...schema.parse(req.body), creator: req.auth.sub })); } catch (error) { next(error); } });
