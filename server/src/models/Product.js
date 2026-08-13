@@ -10,6 +10,9 @@ const productSchema = new Schema({
   coverColor: { type: String, default: '#8b5cf6' },
   sales: { type: Number, default: 0, min: 0 },
   downloadUrl: { type: String, default: '' },
-  downloadLimit: { type: Number, default: 5, min: 1 }
+  downloadLimit: { type: Number, default: 5, min: 1 },
+  fileUrl: { type: String, default: '' },
+  fileFilename: { type: String, default: '' },
+  licenseType: { type: String, enum: ['personal', 'commercial', 'extended', 'none'], default: 'personal' }
 }, { timestamps: true });
 export const Product = model('Product', productSchema);
