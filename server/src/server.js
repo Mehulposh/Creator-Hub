@@ -1,6 +1,8 @@
 import dotenv from 'dotenv';
 import cors from 'cors';
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -25,6 +27,9 @@ import { affiliateRouter } from './routes/affiliates.js';
 import { funnelRouter } from './routes/funnels.js';
 import { automationRouter } from './routes/automations.js';
 import { customerRouter } from './routes/customer.js';
+import { uploadsRouter } from './routes/uploads.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 dotenv.config();
 
@@ -67,10 +72,15 @@ app.use('/api/affiliates', affiliateRouter);
 app.use('/api/funnels', funnelRouter);
 app.use('/api/automations', automationRouter);
 app.use('/api/customer', customerRouter);
+app.use('/api/uploads/lesson-pdfs', express.static(path.join(__dirname, '../uploads/lesson-pdfs')));
+app.use('/api/uploads/knowledge-pdfs', express.static(path.join(__dirname, '../uploads/knowledge-pdfs')));
+app.use('/api/uploads', uploadsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/admin', adminRouter);
 app.use((error, _req, res, _next) => {
   if (error.name === 'ZodError') return res.status(400).json({ message: error.issues[0]?.message || 'Invalid request' });
+  if (error.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ message: 'PDF must be 20 MB or smaller.' });
+  if (error.message === 'Only PDF files are allowed') return res.status(400).json({ message: error.message });
   console.error(error);
   res.status(500).json({ message: 'Something went wrong' });
 });
