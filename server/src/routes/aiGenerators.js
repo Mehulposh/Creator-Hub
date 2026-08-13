@@ -1,21 +1,20 @@
 import { Router } from 'express';
-import OpenAI from 'openai';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { requireCreator } from '../middleware/creator.js';
 import { retrieve } from '../services/rag.js';
+import { getGroqClient, getGroqModel } from '../services/groq.js';
 
 export const aiGeneratorRouter = Router();
 const requestSchema = z.object({ prompt: z.string().min(1).max(4000), context: z.string().max(4000).optional() });
 
 function client() {
-  if (!process.env.XAI_API_KEY) throw new Error('Grok is not configured. Add XAI_API_KEY to .env.');
-  return new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1' });
+  return getGroqClient();
 }
 
 async function generate(systemPrompt, userPrompt) {
   const response = await client().chat.completions.create({
-    model: process.env.XAI_MODEL || 'grok-2-latest',
+    model: getGroqModel(),
     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }]
   });
   return response.choices[0]?.message.content || '';
