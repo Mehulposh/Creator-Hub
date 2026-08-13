@@ -52,6 +52,7 @@ function mapSession(appointment) {
     duration: appointment.duration,
     status: appointment.status,
     notes: appointment.notes || '',
+    joinLink: appointment.joinLink || '',
     creatorName: appointment.creator?.storeName || appointment.creator?.name || 'Creator',
     storeSlug: appointment.creator?.storeSlug
   };
