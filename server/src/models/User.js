@@ -24,6 +24,10 @@ const userSchema = new Schema({
     tiktok: String,
     website: String
   },
-  linkBlocks: { type: [linkBlockSchema], default: [] }
+  linkBlocks: { type: [linkBlockSchema], default: [] },
+  seoTitle: { type: String, default: '', maxlength: 120 },
+  seoDescription: { type: String, default: '', maxlength: 300 },
+  customDomain: { type: String, default: '', trim: true, lowercase: true },
+  fontFamily: { type: String, default: 'Inter' }
 }, { timestamps: true });
 export const User = model('User', userSchema);
