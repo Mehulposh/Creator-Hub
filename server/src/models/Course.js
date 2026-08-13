@@ -4,7 +4,10 @@ const lessonSchema = new Schema({
   title: { type: String, required: true },
   content: { type: String, default: '', maxlength: 20000 },
   duration: { type: Number, default: 10 },
-  isPreview: { type: Boolean, default: false }
+  isPreview: { type: Boolean, default: false },
+  pdfUrl: { type: String, default: '' },
+  pdfFilename: { type: String, default: '' },
+  meetLink: { type: String, default: '' }
 }, { _id: true });
 const courseSchema = new Schema({
   creator: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
