@@ -8,6 +8,7 @@ const appointmentSchema = new Schema({
   startsAt: { type: Date, required: true },
   duration: { type: Number, min: 15, default: 60 },
   status: { type: String, enum: ['confirmed', 'pending', 'completed', 'cancelled'], default: 'confirmed' },
-  notes: { type: String, default: '' }
+  notes: { type: String, default: '' },
+  joinLink: { type: String, default: '' }
 }, { timestamps: true });
 export const Appointment = model('Appointment', appointmentSchema);
