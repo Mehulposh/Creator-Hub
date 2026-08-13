@@ -12,6 +12,7 @@ const funnelSchema = new Schema({
   name: { type: String, required: true, trim: true },
   description: { type: String, default: '' },
   status: { type: String, enum: ['draft', 'published'], default: 'draft' },
+  slug: { type: String, trim: true, lowercase: true, sparse: true },
   steps: { type: [stepSchema], default: [] },
   visits: { type: Number, default: 0, min: 0 },
   conversions: { type: Number, default: 0, min: 0 }
