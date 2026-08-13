@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
-import OpenAI from 'openai';
 import { z } from 'zod';
 import { User } from '../models/User.js';
 import { Product } from '../models/Product.js';
 import { Course } from '../models/Course.js';
 import { retrieve } from '../services/rag.js';
+import { getGroqClient, getGroqModel, isGroqConfigured } from '../services/groq.js';
+import { applyCoupon } from './coupons.js';
 
 export const storefrontRouter = Router();
 
@@ -23,18 +24,49 @@ storefrontRouter.get('/:slug', async (req, res, next) => {
 });
 
 const supportSchema = z.object({ slug: z.string().min(1), message: z.string().min(1).max(2000) });
+const validateCouponSchema = z.object({
+  slug: z.string().min(1),
+  code: z.string().min(1).max(20),
+  subtotal: z.coerce.number().min(0)
+});
+
+storefrontRouter.post('/validate-coupon', async (req, res, next) => {
+  try {
+    const { slug, code, subtotal } = validateCouponSchema.parse(req.body);
+    const lookup = mongoose.isValidObjectId(slug) ? { $or: [{ storeSlug: slug }, { _id: slug }] } : { storeSlug: slug };
+    const creator = await User.findOne(lookup);
+    if (!creator) return res.status(404).json({ message: 'Store not found' });
+    const result = await applyCoupon(creator._id, code, subtotal);
+    const discount = Math.round((subtotal - result.amount) * 100) / 100;
+    res.json({
+      valid: true,
+      code: result.coupon.code,
+      subtotal,
+      discount,
+      total: result.amount,
+      discountType: result.coupon.discountType,
+      discountValue: result.coupon.discountValue
+    });
+  } catch (error) {
+    if (error.message?.includes('coupon') || error.message?.includes('Coupon')) {
+      return res.status(400).json({ message: error.message });
+    }
+    next(error);
+  }
+});
+
 storefrontRouter.post('/support', async (req, res, next) => {
   try {
     const { slug, message } = supportSchema.parse(req.body);
     const lookup = mongoose.isValidObjectId(slug) ? { $or: [{ storeSlug: slug }, { _id: slug }] } : { storeSlug: slug };
     const creator = await User.findOne(lookup);
     if (!creator) return res.status(404).json({ message: 'Store not found' });
-    if (!process.env.XAI_API_KEY) return res.status(503).json({ message: 'Support assistant is not available' });
+    if (!isGroqConfigured()) return res.status(503).json({ message: 'Support assistant is not available' });
     const sources = await retrieve(creator._id, message);
     const context = sources.length ? sources.map((s, i) => `[${i + 1}] ${s.title}\n${s.content}`).join('\n\n') : 'No matching knowledge found.';
-    const grok = new OpenAI({ apiKey: process.env.XAI_API_KEY, baseURL: 'https://api.x.ai/v1' });
-    const response = await grok.chat.completions.create({
-      model: process.env.XAI_MODEL || 'grok-2-latest',
+    const ai = getGroqClient();
+    const response = await ai.chat.completions.create({
+      model: getGroqModel(),
       messages: [
         { role: 'system', content: `You are a helpful customer support assistant for ${creator.storeName || creator.name}. Answer from the knowledge below. Be friendly and concise.\n\nKNOWLEDGE:\n${context}` },
         { role: 'user', content: message }
