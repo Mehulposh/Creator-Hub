@@ -2,9 +2,11 @@ import { Schema, model } from 'mongoose';
 
 const orderSchema = new Schema({
   creator: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-  itemType: { type: String, enum: ['product', 'course'], default: 'product' },
+  itemType: { type: String, enum: ['product', 'course', 'membership', 'bundle'], default: 'product' },
   product: { type: Schema.Types.ObjectId, ref: 'Product' },
   course: { type: Schema.Types.ObjectId, ref: 'Course' },
+  membership: { type: Schema.Types.ObjectId, ref: 'Membership' },
+  bundle: { type: Schema.Types.ObjectId, ref: 'Bundle' },
   buyerName: { type: String, default: '' },
   buyerEmail: { type: String, required: true, lowercase: true },
   amount: { type: Number, required: true, min: 0 },
