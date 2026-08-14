@@ -1,4 +1,5 @@
-import { Menu, Moon, Sun } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronDown, Menu, Moon, Sun } from 'lucide-react';
 import { cn } from '../lib/cn';
 import { ui } from '../lib/ui';
 
@@ -13,6 +14,7 @@ export function DashboardLayout({
   navItems,
   activeView,
   onNavigate,
+  collapsibleNav,
   bottomItems,
   headerCenter,
   headerRight,
@@ -20,6 +22,14 @@ export function DashboardLayout({
   onNotificationClick,
   children
 }) {
+  const collapsibleViews = collapsibleNav?.items.map((item) => item.name) || [];
+  const collapsibleActive = collapsibleViews.includes(activeView);
+  const [toolsOpen, setToolsOpen] = useState(collapsibleActive);
+
+  useEffect(() => {
+    if (collapsibleActive) setToolsOpen(true);
+  }, [collapsibleActive]);
+
   return (
     <main className={ui.shell(isDark)}>
       <aside className={ui.sidebar(isDark, menu)}>
@@ -41,9 +51,42 @@ export function DashboardLayout({
             </button>
           ))}
         </nav>
-        <div className={ui.sidebarBottom(isDark)}>
+        <div className={cn(ui.sidebarBottom(isDark), 'shrink-0')}>
+          {collapsibleNav && (
+            <div className="mb-1">
+              <button
+                type="button"
+                className={cn(
+                  ui.navBtn(isDark, collapsibleActive && !toolsOpen),
+                  'justify-between font-semibold'
+                )}
+                onClick={() => setToolsOpen((open) => !open)}
+                aria-expanded={toolsOpen}
+              >
+                <span className="flex items-center gap-3">
+                  {collapsibleNav.icon && <collapsibleNav.icon size={19}/>}
+                  {collapsibleNav.label}
+                </span>
+                <ChevronDown size={16} className={cn('shrink-0 transition-transform duration-200', toolsOpen && 'rotate-180')}/>
+              </button>
+              {toolsOpen && (
+                <div className="mt-1 max-h-[220px] space-y-0.5 overflow-y-auto overscroll-contain pl-1">
+                  {collapsibleNav.items.map(({ name, icon: Icon, onClick }) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={cn(ui.navBtn(isDark, activeView === name), 'py-2 pl-7 text-[12px]')}
+                      onClick={onClick}
+                    >
+                      <Icon size={16}/>{name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {bottomItems.map(({ name, icon: Icon, onClick }) => (
-            <button key={name} type="button" className={ui.navBtn(isDark, false)} onClick={onClick}>
+            <button key={name} type="button" className={ui.navBtn(isDark, activeView === name)} onClick={onClick}>
               <Icon size={19}/>{name}
             </button>
           ))}
