@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  BookOpen, Clock, ExternalLink, GraduationCap, LoaderCircle, MessageCircle,
-  Package, Plus, Shield, ShoppingBag, ShoppingCart, Sparkles, Trash2, Users, X, Zap
+  BookOpen, CalendarDays, Clock, Crown, ExternalLink, GraduationCap, Heart, LoaderCircle, MessageCircle,
+  Package, Plus, Shield, ShoppingBag, ShoppingCart, Sparkles, Trash2, Users, Video, X, Zap
 } from 'lucide-react';
 import { commerceApi, storefrontApi } from '../lib/api';
 import { ThemeToggle } from '../components/ThemeToggle';
@@ -16,6 +16,9 @@ export function PublicStore({ slug }) {
   const [activeTab, setActiveTab] = useState('products');
   const [email, setEmail] = useState('');
   const [coupon, setCoupon] = useState('');
+  const [couponPreview, setCouponPreview] = useState(null);
+  const [couponError, setCouponError] = useState('');
+  const [couponLoading, setCouponLoading] = useState(false);
   const [buying, setBuying] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportMsg, setSupportMsg] = useState('');
@@ -23,6 +26,12 @@ export function PublicStore({ slug }) {
   const [supportLoading, setSupportLoading] = useState(false);
   const [paymentSimulated, setPaymentSimulated] = useState(true);
   const [checkoutSuccess, setCheckoutSuccess] = useState('');
+  const [sessionForm, setSessionForm] = useState({ clientName: '', clientEmail: '', startsAt: '', duration: '60', notes: '' });
+  const [sessionBooking, setSessionBooking] = useState(false);
+  const [sessionSuccess, setSessionSuccess] = useState('');
+  const [sessionError, setSessionError] = useState('');
+  const [wishlist, setWishlist] = useState(() => JSON.parse(localStorage.getItem(`ach_wishlist_${slug}`) || '[]'));
+  const affiliateRef = useMemo(() => new URLSearchParams(window.location.search).get('ref') || '', []);
 
   const cart = useAppStore((s) => s.cart);
   const cartOpen = useAppStore((s) => s.cartOpen);
@@ -49,6 +58,8 @@ export function PublicStore({ slug }) {
       return data;
     }).then(setStore).catch((e) => setError(e.message));
 
+    storefrontApi.pageView({ slug, path: `/store/${slug}`, referrer: document.referrer || '' }).catch(() => {});
+
     commerceApi.paymentMode().then((m) => setPaymentSimulated(m.simulated)).catch(() => setPaymentSimulated(true));
 
     const params = new URLSearchParams(window.location.search);
@@ -61,7 +72,47 @@ export function PublicStore({ slug }) {
     }
   }, [slug, setLastStoreSlug]);
 
+  useEffect(() => {
+    if (!store?.creator) return;
+    const title = store.creator.seoTitle || `${store.creator.storeName || store.creator.name} | Creator Store`;
+    const desc = store.creator.seoDescription || store.creator.bio || 'Shop digital products, courses, and memberships.';
+    document.title = title;
+    let meta = document.querySelector('meta[name="description"]');
+    if (!meta) { meta = document.createElement('meta'); meta.name = 'description'; document.head.appendChild(meta); }
+    meta.content = desc;
+  }, [store]);
+
+  const toggleWishlist = (item) => {
+    const key = `${item.type}:${item.id}`;
+    const next = wishlist.includes(key) ? wishlist.filter((k) => k !== key) : [...wishlist, key];
+    setWishlist(next);
+    localStorage.setItem(`ach_wishlist_${slug}`, JSON.stringify(next));
+  };
+
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + item.price, 0), [cart]);
+  const checkoutTotal = couponPreview?.total ?? cartTotal;
+
+  useEffect(() => {
+    if (!coupon.trim() || cartTotal <= 0) {
+      setCouponPreview(null);
+      setCouponError('');
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setCouponLoading(true);
+      setCouponError('');
+      try {
+        const result = await storefrontApi.validateCoupon({ slug, code: coupon.trim(), subtotal: cartTotal });
+        setCouponPreview(result);
+      } catch (err) {
+        setCouponPreview(null);
+        setCouponError(err.message);
+      } finally {
+        setCouponLoading(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [coupon, cartTotal, slug]);
 
   const completePurchase = async (result) => {
     setBuyerEmail(email);
@@ -70,6 +121,30 @@ export function PublicStore({ slug }) {
     setCheckoutSuccess(result.simulated
       ? 'Demo checkout complete! View your purchases in My Library.'
       : 'Purchase complete! View your downloads and courses in My Library.');
+  };
+
+  const bookSession = async (e) => {
+    e.preventDefault();
+    setSessionBooking(true);
+    setSessionError('');
+    setSessionSuccess('');
+    try {
+      const result = await storefrontApi.bookSession({
+        slug,
+        clientName: sessionForm.clientName.trim(),
+        clientEmail: sessionForm.clientEmail.trim().toLowerCase(),
+        startsAt: sessionForm.startsAt,
+        duration: Number(sessionForm.duration),
+        notes: sessionForm.notes.trim() || undefined
+      });
+      setBuyerEmail(sessionForm.clientEmail.trim().toLowerCase());
+      setSessionSuccess(result.message);
+      setSessionForm({ clientName: '', clientEmail: '', startsAt: '', duration: '60', notes: '' });
+    } catch (err) {
+      setSessionError(err.message);
+    } finally {
+      setSessionBooking(false);
+    }
   };
 
   const checkoutCart = async (e) => {
@@ -82,6 +157,7 @@ export function PublicStore({ slug }) {
       const result = await commerceApi.cartCheckout({
         email,
         couponCode: coupon || undefined,
+        affiliateCode: affiliateRef || undefined,
         successUrl: baseUrl,
         cancelUrl: baseUrl,
         items: cart.map(({ type, id }) => ({ type, id }))
@@ -136,6 +212,8 @@ export function PublicStore({ slug }) {
   const social = store.creator.socialLinks || {};
   const products = store.products || [];
   const courses = store.courses || [];
+  const memberships = store.memberships || [];
+  const bundles = store.bundles || [];
   const storeName = store.creator.storeName || store.creator.name;
   const totalStudents = courses.reduce((sum, c) => sum + (c.enrolled || 0), 0);
   const featuredProduct = products[0];
@@ -242,6 +320,9 @@ export function PublicStore({ slug }) {
               <BookOpen size={16}/> View courses
             </button>
           )}
+          <button type="button" className="inline-flex items-center gap-2 rounded-full border border-violet-200/40 bg-white px-5 py-3 text-sm font-semibold text-violet-700 transition hover:-translate-y-0.5 dark:border-violet-300/20 dark:bg-[#211b31] dark:text-[#e8e0ff]" onClick={() => scrollToCatalog('sessions')}>
+            <CalendarDays size={16}/> Book a session
+          </button>
         </div>
 
         {(links.length > 0 || hasSocial) && (
@@ -341,19 +422,25 @@ export function PublicStore({ slug }) {
         </div>
 
         <div className="mx-auto mb-7 flex w-fit flex-wrap justify-center gap-2.5 rounded-full border border-violet-200/30 bg-white p-1.5 dark:border-violet-300/12 dark:bg-[#211b31]">
-          {['products', 'courses'].map((tab) => (
+          {[
+            { id: 'products', label: 'products', icon: ShoppingBag, count: products.length },
+            { id: 'courses', label: 'courses', icon: BookOpen, count: courses.length },
+            { id: 'memberships', label: 'memberships', icon: Crown, count: memberships.length },
+            { id: 'bundles', label: 'bundles', icon: Package, count: bundles.length },
+            { id: 'sessions', label: 'sessions', icon: CalendarDays, count: null }
+          ].map(({ id, label, icon: Icon, count }) => (
             <button
-              key={tab}
+              key={id}
               type="button"
               className={cn(
                 'flex items-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-semibold capitalize transition',
-                activeTab === tab ? 'text-white shadow-md' : 'text-gray-500 dark:text-[#c5bdd7]'
+                activeTab === id ? 'text-white shadow-md' : 'text-gray-500 dark:text-[#c5bdd7]'
               )}
-              style={activeTab === tab ? { background: theme } : undefined}
-              onClick={() => setActiveTab(tab)}
+              style={activeTab === id ? { background: theme } : undefined}
+              onClick={() => setActiveTab(id)}
             >
-              {tab === 'products' ? <ShoppingBag size={16}/> : <BookOpen size={16}/>}
-              {tab} ({tab === 'products' ? products.length : courses.length})
+              <Icon size={16}/>
+              {label}{count !== null ? ` (${count})` : ''}
             </button>
           ))}
         </div>
@@ -375,9 +462,14 @@ export function PublicStore({ slug }) {
                 </div>
                 <footer className="flex items-center justify-between border-t border-violet-200/20 px-4 py-3.5 dark:border-violet-300/10">
                   <b className="font-display text-xl">${product.price.toFixed(2)}</b>
-                  <button className="inline-flex items-center gap-1 rounded-full px-3.5 py-2 text-[11px] font-semibold text-white transition hover:brightness-110" style={{ background: theme }} onClick={() => addToCart({ type: 'product', id: product._id, title: product.title, price: product.price, coverColor: product.coverColor })}>
-                    <Plus size={14}/> Add to cart
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button type="button" className="rounded-full p-2 text-rose-400" onClick={() => toggleWishlist({ type: 'product', id: product._id })} aria-label="Wishlist">
+                      <Heart size={14} fill={wishlist.includes(`product:${product._id}`) ? 'currentColor' : 'none'}/>
+                    </button>
+                    <button className="inline-flex items-center gap-1 rounded-full px-3.5 py-2 text-[11px] font-semibold text-white transition hover:brightness-110" style={{ background: theme }} onClick={() => addToCart({ type: 'product', id: product._id, title: product.title, price: product.price, coverColor: product.coverColor })}>
+                      <Plus size={14}/> Add to cart
+                    </button>
+                  </div>
                 </footer>
               </article>
             ))}
@@ -413,6 +505,103 @@ export function PublicStore({ slug }) {
               </article>
             ))}
             {!courses.length && <EmptyCatalog type="courses"/>}
+          </div>
+        )}
+
+        {activeTab === 'memberships' && (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {memberships.map((m) => (
+              <article key={m._id} className="flex flex-col overflow-hidden rounded-2xl border border-violet-200/30 bg-white dark:border-violet-300/15 dark:bg-[#211b31]">
+                <div className="grid place-items-center px-6 py-8 text-white" style={{ background: `linear-gradient(145deg, ${theme}, #271a48)` }}>
+                  <Crown size={32}/>
+                  <h3 className="mt-3 font-display text-lg font-semibold">{m.name}</h3>
+                  <b className="mt-2 text-2xl">${m.price}<small className="text-sm font-normal">/{m.interval === 'annual' ? 'yr' : 'mo'}</small></b>
+                </div>
+                <div className="flex flex-1 flex-col p-4">
+                  <p className="text-xs text-gray-500 dark:text-[#b5acbf]">{m.description}</p>
+                  <ul className="mt-3 list-none space-y-1 p-0 text-xs text-gray-400">
+                    {(m.perks || []).map((p, i) => <li key={i}>✓ {p}</li>)}
+                  </ul>
+                </div>
+                <footer className="border-t border-violet-200/20 px-4 py-3.5 dark:border-violet-300/10">
+                  <button className="inline-flex w-full items-center justify-center gap-1 rounded-full py-2.5 text-[11px] font-semibold text-white" style={{ background: theme }} onClick={() => addToCart({ type: 'membership', id: m._id, title: m.name, price: m.price })}>
+                    <Plus size={14}/> Subscribe
+                  </button>
+                </footer>
+              </article>
+            ))}
+            {!memberships.length && <EmptyCatalog type="memberships"/>}
+          </div>
+        )}
+
+        {activeTab === 'bundles' && (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {bundles.map((b) => (
+              <article key={b._id} className="flex flex-col overflow-hidden rounded-2xl border border-violet-200/30 bg-white dark:border-violet-300/15 dark:bg-[#211b31]">
+                <div className="grid h-[120px] place-items-center text-white" style={{ background: `linear-gradient(145deg, ${b.coverColor || theme}, #271a48)` }}>
+                  <Package size={28}/>
+                </div>
+                <div className="flex flex-1 flex-col p-4">
+                  <h3 className="font-display text-[17px] font-semibold">{b.title}</h3>
+                  <p className="mt-2 text-xs text-gray-500 dark:text-[#b5acbf]">{b.description || `${(b.productIds?.length || 0) + (b.courseIds?.length || 0)} items included`}</p>
+                </div>
+                <footer className="flex items-center justify-between border-t border-violet-200/20 px-4 py-3.5 dark:border-violet-300/10">
+                  <b className="font-display text-xl">${b.price.toFixed(2)}</b>
+                  <button className="inline-flex items-center gap-1 rounded-full px-3.5 py-2 text-[11px] font-semibold text-white" style={{ background: theme }} onClick={() => addToCart({ type: 'bundle', id: b._id, title: b.title, price: b.price })}>
+                    <Plus size={14}/> Add to cart
+                  </button>
+                </footer>
+              </article>
+            ))}
+            {!bundles.length && <EmptyCatalog type="bundles"/>}
+          </div>
+        )}
+
+        {activeTab === 'sessions' && (
+          <div className="mx-auto max-w-lg">
+            <article className={cn('overflow-hidden rounded-2xl border border-violet-200/30 dark:border-violet-300/15', isDark ? 'bg-[#211b31]' : 'bg-white')}>
+              <div className="grid place-items-center px-6 py-10 text-white" style={{ background: `linear-gradient(145deg, ${theme}, #271a48)` }}>
+                <CalendarDays size={40}/>
+                <h3 className="mt-4 font-display text-2xl font-semibold">Book a 1-on-1 session</h3>
+                <p className="mt-2 max-w-sm text-center text-sm text-white/80">
+                  Pick a time that works for you. {storeName} will confirm and send a meeting link.
+                </p>
+              </div>
+              <form className="p-6" onSubmit={bookSession}>
+                {sessionSuccess && (
+                  <p className="mb-4 rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-600 dark:text-emerald-300">
+                    {sessionSuccess}{' '}
+                    <a href={`/customer?store=${slug}`} className="font-semibold">View in My Library →</a>
+                  </p>
+                )}
+                {sessionError && <p className="mb-4 text-sm text-rose-400">{sessionError}</p>}
+                <label className="mb-3 block text-xs text-gray-500 dark:text-[#c5bdd7]">
+                  Your name
+                  <input required value={sessionForm.clientName} onChange={(e) => setSessionForm({ ...sessionForm, clientName: e.target.value })} className="mt-1.5 w-full rounded-lg border border-violet-200/30 bg-gray-50 px-3 py-2.5 text-sm dark:border-violet-300/15 dark:bg-[#110e1a] dark:text-white"/>
+                </label>
+                <label className="mb-3 block text-xs text-gray-500 dark:text-[#c5bdd7]">
+                  Email address
+                  <input required type="email" value={sessionForm.clientEmail} onChange={(e) => setSessionForm({ ...sessionForm, clientEmail: e.target.value })} className="mt-1.5 w-full rounded-lg border border-violet-200/30 bg-gray-50 px-3 py-2.5 text-sm dark:border-violet-300/15 dark:bg-[#110e1a] dark:text-white"/>
+                </label>
+                <div className="mb-3 grid gap-3 sm:grid-cols-2">
+                  <label className="block text-xs text-gray-500 dark:text-[#c5bdd7]">
+                    Preferred date & time
+                    <input required type="datetime-local" value={sessionForm.startsAt} onChange={(e) => setSessionForm({ ...sessionForm, startsAt: e.target.value })} className="mt-1.5 w-full rounded-lg border border-violet-200/30 bg-gray-50 px-3 py-2.5 text-sm dark:border-violet-300/15 dark:bg-[#110e1a] dark:text-white"/>
+                  </label>
+                  <label className="block text-xs text-gray-500 dark:text-[#c5bdd7]">
+                    Duration (minutes)
+                    <input required type="number" min="15" max="480" step="15" value={sessionForm.duration} onChange={(e) => setSessionForm({ ...sessionForm, duration: e.target.value })} className="mt-1.5 w-full rounded-lg border border-violet-200/30 bg-gray-50 px-3 py-2.5 text-sm dark:border-violet-300/15 dark:bg-[#110e1a] dark:text-white"/>
+                  </label>
+                </div>
+                <label className="mb-4 block text-xs text-gray-500 dark:text-[#c5bdd7]">
+                  Notes (optional)
+                  <textarea value={sessionForm.notes} onChange={(e) => setSessionForm({ ...sessionForm, notes: e.target.value })} placeholder="What would you like to focus on?" rows={3} className="mt-1.5 w-full rounded-lg border border-violet-200/30 bg-gray-50 px-3 py-2.5 text-sm dark:border-violet-300/15 dark:bg-[#110e1a] dark:text-white"/>
+                </label>
+                <button type="submit" disabled={sessionBooking} className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-60" style={{ background: theme }}>
+                  {sessionBooking ? <><LoaderCircle className="animate-spin" size={16}/> Sending request...</> : <><Video size={16}/> Request session</>}
+                </button>
+              </form>
+            </article>
           </div>
         )}
       </section>
@@ -456,9 +645,21 @@ export function PublicStore({ slug }) {
                     </li>
                   ))}
                 </ul>
-                <div className="mb-4 flex items-center justify-between border-t border-violet-200/30 py-3.5 dark:border-violet-300/15">
-                  <span>Total</span>
-                  <b className="font-display text-[22px] font-semibold">${cartTotal.toFixed(2)}</b>
+                <div className="mb-4 space-y-2 border-t border-violet-200/30 py-3.5 dark:border-violet-300/15">
+                  <div className="flex items-center justify-between text-sm text-gray-500 dark:text-[#b5acbf]">
+                    <span>Subtotal</span>
+                    <span>${cartTotal.toFixed(2)}</span>
+                  </div>
+                  {couponPreview && couponPreview.discount > 0 && (
+                    <div className="flex items-center justify-between text-sm text-emerald-600 dark:text-emerald-400">
+                      <span>Discount ({couponPreview.code})</span>
+                      <span>-${couponPreview.discount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between border-t border-violet-200/20 pt-2 dark:border-violet-300/10">
+                    <span className="font-medium">Total</span>
+                    <b className="font-display text-[22px] font-semibold">${checkoutTotal.toFixed(2)}</b>
+                  </div>
                 </div>
                 <form onSubmit={checkoutCart}>
                   {paymentSimulated && <p className="mb-3 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-[11px] leading-relaxed text-amber-600 dark:text-amber-300">Demo mode — payments are simulated, no real charge.</p>}
@@ -475,9 +676,18 @@ export function PublicStore({ slug }) {
                   <label className="mb-3 block text-xs text-gray-500 dark:text-[#c5bdd7]">
                     Coupon code (optional)
                     <input value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())} placeholder="SAVE10" className="mt-1.5 w-full rounded-lg border border-violet-200/30 bg-gray-50 px-3 py-2.5 text-sm text-gray-900 dark:border-violet-300/15 dark:bg-[#110e1a] dark:text-white"/>
+                    {couponLoading && <span className="mt-1 block text-[10px] text-gray-400">Checking coupon...</span>}
+                    {couponError && <span className="mt-1 block text-[10px] text-rose-400">{couponError}</span>}
+                    {couponPreview && !couponError && (
+                      <span className="mt-1 block text-[10px] text-emerald-500">
+                        {couponPreview.discountType === 'percent'
+                          ? `${couponPreview.discountValue}% off applied`
+                          : `$${couponPreview.discountValue.toFixed(2)} off applied`}
+                      </span>
+                    )}
                   </label>
-                  <button type="submit" className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-60" disabled={buying} style={{ background: theme }}>
-                    {buying ? 'Processing...' : paymentSimulated ? `Simulate payment · $${cartTotal.toFixed(2)}` : `Checkout · $${cartTotal.toFixed(2)}`}
+                  <button type="submit" className="w-full rounded-xl py-3 text-sm font-semibold text-white disabled:opacity-60" disabled={buying || (coupon.trim() && (couponError || couponLoading))} style={{ background: theme }}>
+                    {buying ? 'Processing...' : paymentSimulated ? `Simulate payment · $${checkoutTotal.toFixed(2)}` : `Checkout · $${checkoutTotal.toFixed(2)}`}
                   </button>
                 </form>
               </>
