@@ -22,9 +22,15 @@ export const contactApi = {
   list: () => request('/contacts'),
   create: (input) => request('/contacts', { method: 'POST', body: JSON.stringify(input) }),
   update: (id, input) => request(`/contacts/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
-  remove: (id) => request(`/contacts/${id}`, { method: 'DELETE' })
+  remove: (id) => request(`/contacts/${id}`, { method: 'DELETE' }),
+  history: (id) => request(`/contacts/${id}/history`)
 };
-export const appointmentApi = { list: () => request('/appointments'), create: (input) => request('/appointments', { method: 'POST', body: JSON.stringify(input) }) };
+export const appointmentApi = {
+  list: () => request('/appointments'),
+  create: (input) => request('/appointments', { method: 'POST', body: JSON.stringify(input) }),
+  update: (id, input) => request(`/appointments/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  confirm: (id, joinLink) => request(`/appointments/${id}/confirm`, { method: 'POST', body: JSON.stringify({ joinLink }) })
+};
 export const campaignApi = { list: () => request('/campaigns'), create: (input) => request('/campaigns', { method: 'POST', body: JSON.stringify(input) }), send: (id) => request(`/campaigns/${id}/send`, { method: 'POST' }) };
 export const analyticsApi = { overview: () => request('/analytics/overview') };
 export const learningApi = {
@@ -35,7 +41,15 @@ export const learningApi = {
   memberships: () => request('/learning/memberships'),
   createMembership: (input) => request('/learning/memberships', { method: 'POST', body: JSON.stringify(input) }),
   updateMembership: (id, input) => request(`/learning/memberships/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
-  deleteMembership: (id) => request(`/learning/memberships/${id}`, { method: 'DELETE' })
+  deleteMembership: (id) => request(`/learning/memberships/${id}`, { method: 'DELETE' }),
+  enrollments: () => request('/learning/enrollments'),
+  updateProgress: (input) => request('/learning/progress', { method: 'POST', body: JSON.stringify(input) })
+};
+export const bundleApi = {
+  list: () => request('/bundles'),
+  create: (input) => request('/bundles', { method: 'POST', body: JSON.stringify(input) }),
+  update: (id, input) => request(`/bundles/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  remove: (id) => request(`/bundles/${id}`, { method: 'DELETE' })
 };
 export const communityApi = {
   posts: () => request('/community/posts'),
@@ -43,13 +57,32 @@ export const communityApi = {
   notifications: () => request('/community/notifications'),
   read: (id) => request(`/community/notifications/${id}/read`, { method: 'PATCH' })
 };
-export const knowledgeApi = { list: () => request('/knowledge'), create: (input) => request('/knowledge', { method: 'POST', body: JSON.stringify(input) }), remove: (id) => request(`/knowledge/${id}`, { method: 'DELETE' }) };
+export const knowledgeApi = {
+  list: () => request('/knowledge'),
+  create: (input) => request('/knowledge', { method: 'POST', body: JSON.stringify(input) }),
+  createFromPdf: async (title, file) => {
+    const token = localStorage.getItem('ach_token');
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('file', file);
+    const response = await fetch(`${API_URL}/knowledge/from-pdf`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body?.message || 'Upload failed');
+    return body;
+  },
+  remove: (id) => request(`/knowledge/${id}`, { method: 'DELETE' })
+};
 export const aiStudioApi = { chat: (input) => request('/ai-studio/chat', { method: 'POST', body: JSON.stringify(input) }), support: (input) => request('/ai-studio/support', { method: 'POST', body: JSON.stringify(input) }), agent: (input) => request('/ai-studio/agents/run', { method: 'POST', body: JSON.stringify(input) }) };
 export const aiApi = { generate: (input) => request('/ai/generate', { method: 'POST', body: JSON.stringify(input) }) };
 export const aiGeneratorApi = {
   product: (input) => request('/ai-generators/product', { method: 'POST', body: JSON.stringify(input) }),
   website: (input) => request('/ai-generators/website', { method: 'POST', body: JSON.stringify(input) }),
-  branding: (input) => request('/ai-generators/branding', { method: 'POST', body: JSON.stringify(input) })
+  branding: (input) => request('/ai-generators/branding', { method: 'POST', body: JSON.stringify(input) }),
+  content: (input) => request('/ai-generators/content', { method: 'POST', body: JSON.stringify(input) })
 };
 export const commerceApi = {
   orders: () => request('/commerce/orders'),
@@ -83,7 +116,11 @@ export const automationApi = {
   update: (id, input) => request(`/automations/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
   remove: (id) => request(`/automations/${id}`, { method: 'DELETE' })
 };
-export const settingsApi = { profile: () => request('/settings/profile'), update: (input) => request('/settings/profile', { method: 'PATCH', body: JSON.stringify(input) }) };
+export const settingsApi = {
+  profile: () => request('/settings/profile'),
+  update: (input) => request('/settings/profile', { method: 'PATCH', body: JSON.stringify(input) }),
+  applyBranding: (input) => request('/settings/apply-branding', { method: 'POST', body: JSON.stringify(input) })
+};
 export const adminApi = {
   overview: () => request('/admin/overview'),
   users: () => request('/admin/users'),
@@ -102,7 +139,43 @@ export const adminApi = {
   deletePost: (id) => request(`/admin/posts/${id}`, { method: 'DELETE' })
 };
 export const storefrontApi = {
-  support: (input) => request('/storefront/support', { method: 'POST', body: JSON.stringify(input) })
+  get: (slug) => request(`/storefront/${slug}`),
+  support: (input) => request('/storefront/support', { method: 'POST', body: JSON.stringify(input) }),
+  validateCoupon: (input) => request('/storefront/validate-coupon', { method: 'POST', body: JSON.stringify(input) }),
+  bookSession: (input) => request('/storefront/book-session', { method: 'POST', body: JSON.stringify(input) }),
+  pageView: (input) => request('/storefront/page-view', { method: 'POST', body: JSON.stringify(input) }),
+  getFunnel: (slug) => request(`/storefront/funnel/${slug}`),
+  funnelLead: (slug, input) => request(`/storefront/funnel/${slug}/lead`, { method: 'POST', body: JSON.stringify(input) }),
+  funnelConvert: (slug) => request(`/storefront/funnel/${slug}/convert`, { method: 'POST', body: JSON.stringify({}) })
+};
+
+export const uploadApi = {
+  lessonPdf: async (file) => {
+    const token = localStorage.getItem('ach_token');
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_URL}/uploads/lesson-pdf`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body?.message || 'Upload failed');
+    return body;
+  },
+  productFile: async (file) => {
+    const token = localStorage.getItem('ach_token');
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_URL}/uploads/product-file`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body?.message || 'Upload failed');
+    return body;
+  }
 };
 
 async function customerRequest(path, options = {}) {
@@ -125,6 +198,9 @@ export const customerApi = {
   verifyLogin: (email, code) => request('/customer/verify-login', { method: 'POST', body: JSON.stringify({ email, code }) }),
   library: () => customerRequest('/customer/library'),
   me: () => customerRequest('/customer/me'),
+  notifications: () => customerRequest('/customer/notifications'),
+  readNotification: (id) => customerRequest(`/customer/notifications/${id}/read`, { method: 'PATCH' }),
+  updateProgress: (input) => customerRequest('/customer/progress', { method: 'POST', body: JSON.stringify(input) }),
   logout: () => {
     localStorage.removeItem('ach_customer_token');
     localStorage.removeItem('ach_customer_email');
