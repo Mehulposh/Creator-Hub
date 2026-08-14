@@ -101,7 +101,7 @@ async function start() {
 
   await mongoose.connect(process.env.MONGODB_URI);
 
-  app.listen(port, '0.0.0.0', () => {
+  app.listen(port, () => {
     console.log(`API listening on port ${port}`);
   });
 }
