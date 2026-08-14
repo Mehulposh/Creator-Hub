@@ -22,6 +22,31 @@ async function generate(systemPrompt, userPrompt) {
 
 aiGeneratorRouter.use(requireAuth, requireCreator);
 
+aiGeneratorRouter.post('/content', async (req, res, next) => {
+  try {
+    const { prompt, context, contentType } = z.object({
+      prompt: z.string().min(1).max(4000),
+      context: z.string().max(4000).optional(),
+      contentType: z.string().optional()
+    }).parse(req.body);
+    const typePrompts = {
+      blog: 'Write a complete blog post with title, intro, sections, and conclusion.',
+      social: 'Write social media captions for Instagram, Twitter/X, and LinkedIn.',
+      email: 'Write a marketing email with subject line, preview text, and body.',
+      landing: 'Write landing page copy with headline, subheadline, benefits, and CTA.',
+      sales: 'Write persuasive sales copy with hook, pain points, solution, and close.',
+      course: 'Write a detailed course outline with modules and lesson titles.',
+      script: 'Write a video/podcast script with intro, main points, and outro.'
+    };
+    const instruction = typePrompts[contentType] || 'Write creator-ready content.';
+    const content = await generate(
+      `You are an AI content studio for creators. ${instruction} Return well-formatted markdown.`,
+      `${context ? `Context: ${context}\n` : ''}Request: ${prompt}`
+    );
+    res.json({ content, contentType: contentType || 'general' });
+  } catch (error) { next(error); }
+});
+
 aiGeneratorRouter.post('/product', async (req, res, next) => {
   try {
     const { prompt, context } = requestSchema.parse(req.body);
