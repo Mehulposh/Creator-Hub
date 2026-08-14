@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Bot, Compass, FileText, Link2, LoaderCircle, Plus, Send, Sparkles, Trash2, X, Zap } from 'lucide-react';
-import { aiGeneratorApi, aiStudioApi, knowledgeApi } from '../lib/api';
+import { aiGeneratorApi, aiStudioApi, knowledgeApi, settingsApi, productApi } from '../lib/api';
 import { useTheme, ui } from '../lib/ui';
 import { SectionHead, LoadingBlock, ModalShell, FormField } from '../components/ui';
 import { cn } from '../lib/cn';
@@ -25,8 +25,12 @@ export function AiPanel({ view }) {
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
   const [doc, setDoc] = useState({ title: '', content: '' });
+  const [pdfFile, setPdfFile] = useState(null);
+  const [pdfUploading, setPdfUploading] = useState(false);
   const [genResult, setGenResult] = useState('');
   const [genHtml, setGenHtml] = useState('');
+  const [contentType, setContentType] = useState('blog');
+  const [structured, setStructured] = useState(null);
 
   const loadKnowledge = async () => {
     try { setLoading(true); setDocuments(await knowledgeApi.list()); } catch (e) { setError(e.message); } finally { setLoading(false); }
@@ -51,16 +55,31 @@ export function AiPanel({ view }) {
     if (!prompt.trim()) return;
     setLoading(true); setError('');
     try {
-      const api = { 'AI Product': aiGeneratorApi.product, 'AI Website': aiGeneratorApi.website, 'AI Branding': aiGeneratorApi.branding }[view];
-      const result = await api({ prompt });
+      const api = { 'AI Product': aiGeneratorApi.product, 'AI Website': aiGeneratorApi.website, 'AI Branding': aiGeneratorApi.branding, 'AI Content': aiGeneratorApi.content }[view];
+      const result = await api({ prompt, contentType: view === 'AI Content' ? contentType : undefined });
       setGenResult(result.structured ? JSON.stringify(result.structured, null, 2) : result.content);
+      setStructured(result.structured || null);
       setGenHtml(result.html || '');
     } catch (e) { setError(e.message); } finally { setLoading(false); }
   };
 
+  const resetDocForm = () => {
+    setDoc({ title: '', content: '' });
+    setPdfFile(null);
+    setOpen(false);
+  };
+
   const addDocument = async (event) => {
     event.preventDefault();
-    try { const created = await knowledgeApi.create(doc); setDocuments([created, ...documents]); setDoc({ title: '', content: '' }); setOpen(false); } catch (e) { setError(e.message); }
+    try {
+      setPdfUploading(true);
+      setError('');
+      const created = pdfFile
+        ? await knowledgeApi.createFromPdf(doc.title, pdfFile)
+        : await knowledgeApi.create(doc);
+      setDocuments([created, ...documents]);
+      resetDocForm();
+    } catch (e) { setError(e.message); } finally { setPdfUploading(false); }
   };
   const remove = async (id) => { await knowledgeApi.remove(id); setDocuments(documents.filter((item) => item._id !== id)); };
 
@@ -81,7 +100,10 @@ export function AiPanel({ view }) {
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-violet-500/12 text-[#b79fff]"><FileText size={21}/></span>
                 <div className="flex-1">
                   <h3 className={cn(ui.h3, 'mb-1 text-[13px]')}>{item.title}</h3>
-                  <p className={cn('text-[10px]', ui.muted(isDark))}>{item.chunks.length} chunks</p>
+                  <p className={cn('text-[10px]', ui.muted(isDark))}>
+                    {item.chunks.length} chunks
+                    {item.sourceType === 'pdf' && <> · <span className="text-emerald-400">PDF{item.pdfFilename ? `: ${item.pdfFilename}` : ''}</span></>}
+                  </p>
                 </div>
                 <button className="border-0 bg-transparent text-rose-300" onClick={() => remove(item._id)}><Trash2 size={16}/></button>
               </article>
@@ -89,16 +111,50 @@ export function AiPanel({ view }) {
           </div>
         )}
         {open && (
-          <ModalShell isDark={isDark} onClose={() => setOpen(false)}>
-            <button type="button" className={ui.closeBtn(isDark)} onClick={() => setOpen(false)}><X size={19}/></button>
+          <ModalShell isDark={isDark} onClose={resetDocForm}>
+            <button type="button" className={ui.closeBtn(isDark)} onClick={resetDocForm}><X size={19}/></button>
             <form onSubmit={addDocument}>
+              <p className={ui.eyebrow}>ADD KNOWLEDGE</p>
+              <h2 className={ui.h2}>Add to knowledge base</h2>
               <FormField label="Title" isDark={isDark}>
-                <input required className={ui.input(isDark)} value={doc.title} onChange={(e) => setDoc({ ...doc, title: e.target.value })}/>
+                <input required className={ui.input(isDark)} value={doc.title} onChange={(e) => setDoc({ ...doc, title: e.target.value })} placeholder="Refund policy"/>
               </FormField>
-              <FormField label="Content" isDark={isDark}>
-                <textarea required className={ui.textarea(isDark)} value={doc.content} onChange={(e) => setDoc({ ...doc, content: e.target.value })}/>
+              <FormField label="Upload PDF" isDark={isDark}>
+                <input
+                  type="file"
+                  accept="application/pdf"
+                  className={ui.input(isDark)}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setPdfFile(file);
+                    if (file) {
+                      setDoc((prev) => ({
+                        ...prev,
+                        title: prev.title.trim() ? prev.title : file.name.replace(/\.pdf$/i, '')
+                      }));
+                    }
+                  }}
+                />
+                {pdfFile && (
+                  <p className={cn('mt-1.5 inline-flex items-center gap-1.5 text-xs text-emerald-400', ui.muted(isDark))}>
+                    <FileText size={14}/> {pdfFile.name}
+                  </p>
+                )}
               </FormField>
-              <button className={cn(ui.primary, ui.wide)}>Add</button>
+              <FormField label="Or paste content" isDark={isDark}>
+                <textarea
+                  className={ui.textarea(isDark)}
+                  value={doc.content}
+                  onChange={(e) => setDoc({ ...doc, content: e.target.value })}
+                  placeholder="Paste text content here if not uploading a PDF..."
+                  rows={6}
+                  required={!pdfFile}
+                  disabled={Boolean(pdfFile)}
+                />
+              </FormField>
+              <button className={cn(ui.primary, ui.wide)} disabled={pdfUploading || (!pdfFile && doc.content.trim().length < 20)}>
+                {pdfUploading ? 'Processing PDF...' : pdfFile ? 'Upload PDF' : 'Add text'}
+              </button>
             </form>
           </ModalShell>
         )}
@@ -106,22 +162,34 @@ export function AiPanel({ view }) {
     );
   }
 
-  if (['AI Product', 'AI Website', 'AI Branding'].includes(view)) {
-    const icons = { 'AI Product': Zap, 'AI Website': Link2, 'AI Branding': Compass };
+  if (['AI Product', 'AI Website', 'AI Branding', 'AI Content'].includes(view)) {
+    const icons = { 'AI Product': Zap, 'AI Website': Link2, 'AI Branding': Compass, 'AI Content': FileText };
     const Icon = icons[view];
+    const contentTypes = [
+      { id: 'blog', label: 'Blog post' }, { id: 'social', label: 'Social media' },
+      { id: 'email', label: 'Email' }, { id: 'landing', label: 'Landing page' },
+      { id: 'sales', label: 'Sales copy' }, { id: 'course', label: 'Course outline' }, { id: 'script', label: 'Script' }
+    ];
     return (
       <section className={ui.page}>
         <SectionHead
           isDark={isDark}
           eyebrow="AI GENERATORS"
           title={view}
-          description="Describe what you want and let Grok generate it for you."
+          description="Describe what you want and let AI generate it for you."
         />
         <article className={cn('flex min-h-[480px] flex-col overflow-hidden p-0', ui.card(isDark))}>
           <div className={cn('flex items-center gap-2.5 px-[18px] py-4', isDark ? 'border-b border-violet-300/10' : 'border-b border-violet-200/15')}>
             <span className="grid h-[34px] w-[34px] place-items-center rounded-[10px] bg-violet-500/11 text-[#b79fff]"><Icon size={18}/></span>
             <div><b className="text-xs">{view}</b></div>
           </div>
+          {view === 'AI Content' && (
+            <div className="flex flex-wrap gap-2 px-[18px] py-3">
+              {contentTypes.map((t) => (
+                <button key={t.id} type="button" className={cn('rounded-full px-3 py-1 text-[10px] font-semibold', contentType === t.id ? 'bg-violet-500 text-white' : ui.secondary(isDark))} onClick={() => setContentType(t.id)}>{t.label}</button>
+              ))}
+            </div>
+          )}
           <form className={cn('flex gap-2 p-[11px]', isDark ? 'border-t border-violet-300/10' : 'border-t border-violet-200/15')} onSubmit={(e) => { e.preventDefault(); generate(); }}>
             <input
               className={cn('flex-1 border-0 bg-transparent px-2 py-2 text-xs outline-none', isDark ? 'text-[#f4f1fb]' : 'text-[#28243b]')}
@@ -142,6 +210,19 @@ export function AiPanel({ view }) {
           {genHtml && (
             <iframe title="preview" className={cn('mx-3 mb-3 h-[400px] w-[calc(100%-24px)] rounded-[10px] border bg-white', isDark ? 'border-violet-300/10' : 'border-violet-200/15')} srcDoc={genHtml}/>
           )}
+          {view === 'AI Branding' && structured && (
+            <button type="button" className={cn(ui.secondary(isDark), 'mx-3 mb-3')} onClick={async () => {
+              try { await settingsApi.applyBranding(structured); setError(''); alert('Branding applied to your storefront!'); } catch (e) { setError(e.message); }
+            }}>Apply to storefront</button>
+          )}
+          {view === 'AI Product' && structured && (
+            <button type="button" className={cn(ui.secondary(isDark), 'mx-3 mb-3')} onClick={async () => {
+              try {
+                await productApi.create({ title: structured.title, description: structured.description, price: structured.pricingSuggestion || 29, status: 'draft', type: 'digital_download' });
+                alert('Product draft created!');
+              } catch (e) { setError(e.message); }
+            }}>Create product from output</button>
+          )}
         </article>
         {error && <p className={ui.formError}>{error}</p>}
       </section>
@@ -153,7 +234,7 @@ export function AiPanel({ view }) {
     <section className={cn(ui.page, 'max-w-[940px]')}>
       <SectionHead
         isDark={isDark}
-        eyebrow="GROK-POWERED AI"
+        eyebrow="AI-POWERED STUDIO"
         title={view === 'Support' ? 'Support copilot' : 'AI Studio'}
       />
       {view !== 'Support' && (
@@ -206,7 +287,7 @@ export function AiPanel({ view }) {
           ))}
           {loading && (
             <div className={cn('flex items-center gap-1.5 text-[11px]', ui.muted(isDark))}>
-              <LoaderCircle className="animate-spin" size={15}/>Grok is thinking...
+              <LoaderCircle className="animate-spin" size={15}/>AI is thinking...
             </div>
           )}
         </div>
