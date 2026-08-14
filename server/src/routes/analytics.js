@@ -7,18 +7,30 @@ import { Appointment } from '../models/Appointment.js';
 import { Campaign } from '../models/Campaign.js';
 import { Order } from '../models/Order.js';
 
+import { PageView } from '../models/PageView.js';
+
 export const analyticsRouter = Router();
 analyticsRouter.use(requireAuth, requireCreator);
+
+analyticsRouter.post('/page-view', async (req, res, next) => {
+  try {
+    const { path = '/', referrer = '', source = 'store' } = req.body || {};
+    await PageView.create({ creator: req.auth.sub, path, referrer, source });
+    res.json({ ok: true });
+  } catch (error) { next(error); }
+});
 
 analyticsRouter.get('/overview', async (req, res, next) => {
   try {
     const creator = req.auth.sub;
-    const [products, contacts, appointments, campaigns, orders] = await Promise.all([
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const [products, contacts, appointments, campaigns, orders, pageViews] = await Promise.all([
       Product.find({ creator }),
       Contact.find({ creator }),
       Appointment.find({ creator }),
       Campaign.find({ creator }),
-      Order.find({ creator, status: 'paid' }).sort({ createdAt: 1 })
+      Order.find({ creator, status: 'paid' }).sort({ createdAt: 1 }),
+      PageView.countDocuments({ creator, createdAt: { $gte: thirtyDaysAgo } })
     ]);
     const revenue = orders.reduce((total, order) => total + order.amount, 0);
     const sales = orders.length;
@@ -56,7 +68,8 @@ analyticsRouter.get('/overview', async (req, res, next) => {
       chart: normalizedChart,
       topProducts,
       recentActivity,
-      storeVisits: sales * 19 + products.length * 42
+      storeVisits: pageViews,
+      conversionRate: pageViews ? Math.round((sales / pageViews) * 1000) / 10 : 0
     });
   } catch (error) { next(error); }
 });
