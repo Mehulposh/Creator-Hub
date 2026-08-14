@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BarChart3, Bell, BookOpen, Bot, Box, BrainCircuit, CalendarDays, CircleDollarSign, Compass, Crown, GitBranch, LayoutDashboard, Link2, LogOut, Mail, MessageSquare, Package, Search, Sparkles, Users, Zap } from 'lucide-react';
+import { BarChart3, Bell, BookOpen, Bot, Box, BrainCircuit, CalendarDays, CircleDollarSign, Compass, Crown, FileText, GitBranch, LayoutDashboard, Link2, LogOut, Mail, MessageSquare, Package, Search, Sparkles, Users, Zap } from 'lucide-react';
 import './index.css';
 import { authApi, communityApi } from './lib/api';
 import { ProductPanel } from './pages/ProductPanel';
@@ -16,6 +16,9 @@ import { AffiliatePanel } from './pages/AffiliatePanel';
 import { LandingPage } from './pages/LandingPage';
 import { AdminApp } from './pages/AdminApp';
 import { CustomerPortal } from './pages/CustomerPortal';
+import { AutomationPanel } from './pages/AutomationPanel';
+import { BundlePanel } from './pages/BundlePanel';
+import { PublicFunnel } from './pages/PublicFunnel';
 import { ThemeSync } from './components/ThemeSync';
 import { DashboardLayout } from './components/DashboardLayout';
 import { ui } from './lib/ui';
@@ -50,6 +53,7 @@ function App() {
 function AppRoutes() {
   const [path, navigate] = usePath();
   const storeSlug = path.match(/^\/store\/([^/]+)$/)?.[1];
+  const funnelSlug = path.match(/^\/f\/([^/]+)$/)?.[1];
   const isLogin = path === '/login';
 
   const isDark = useAppStore((s) => s.theme === 'dark');
@@ -89,6 +93,7 @@ function AppRoutes() {
   }, [user, path]);
 
   if (storeSlug) return <PublicStore slug={storeSlug}/>;
+  if (funnelSlug) return <PublicFunnel slug={funnelSlug}/>;
   if (path === '/customer') return <CustomerPortal/>;
   if (path === '/my-purchases') return <CustomerPortal/>;
 
@@ -108,23 +113,31 @@ function AppRoutes() {
 
   const renderContent = () => {
     if (activeView === 'Products') return <ProductPanel/>;
+    if (activeView === 'Bundles') return <BundlePanel/>;
     if (activeView === 'Orders') return <CommercePanel user={user}/>;
     if (activeView === 'Settings') return <SettingsPanel onUpdated={updateUser}/>;
     if (activeView === 'Funnels') return <FunnelPanel/>;
     if (activeView === 'Affiliates') return <AffiliatePanel/>;
+    if (activeView === 'Automations') return <AutomationPanel/>;
     if (['Customers', 'Bookings', 'Campaigns', 'Analytics'].includes(activeView)) return <GrowthPanel view={activeView}/>;
     if (['Courses', 'Memberships', 'Community', 'Notifications'].includes(activeView)) return <LearningPanel view={activeView}/>;
-    if (['AI Studio', 'Knowledge', 'Support', 'AI Product', 'AI Website', 'AI Branding'].includes(activeView)) return <AiPanel view={activeView}/>;
+    if (['AI Studio', 'Knowledge', 'Support', 'AI Product', 'AI Website', 'AI Branding', 'AI Content'].includes(activeView)) return <AiPanel view={activeView}/>;
     return <OverviewPanel user={user} onNavigate={setActiveView}/>;
   };
 
-  const bottomItems = [
+  const toolItems = [
+    { name: 'Bundles', icon: Package, onClick: () => setActiveView('Bundles') },
+    { name: 'Automations', icon: Zap, onClick: () => setActiveView('Automations') },
     { name: 'AI Studio', icon: Bot, onClick: () => setActiveView('AI Studio') },
+    { name: 'AI Content', icon: FileText, onClick: () => setActiveView('AI Content') },
     { name: 'AI Product Gen', icon: Zap, onClick: () => setActiveView('AI Product') },
     { name: 'AI Website', icon: Link2, onClick: () => setActiveView('AI Website') },
     { name: 'AI Branding', icon: Compass, onClick: () => setActiveView('AI Branding') },
     { name: 'Support copilot', icon: MessageSquare, onClick: () => setActiveView('Support') },
-    { name: 'Knowledge base', icon: BrainCircuit, onClick: () => setActiveView('Knowledge') },
+    { name: 'Knowledge base', icon: BrainCircuit, onClick: () => setActiveView('Knowledge') }
+  ];
+
+  const bottomItems = [
     { name: 'Settings', icon: Box, onClick: () => setActiveView('Settings') },
     { name: '← Log out', icon: LogOut, onClick: logout }
   ];
@@ -141,6 +154,7 @@ function AppRoutes() {
       navItems={creatorNav.map(([icon, name]) => ({ icon, name }))}
       activeView={activeView}
       onNavigate={setActiveView}
+      collapsibleNav={{ label: 'Tools & AI', icon: Sparkles, items: toolItems }}
       bottomItems={bottomItems}
       headerCenter={(
         <div className={ui.search(isDark)}>
