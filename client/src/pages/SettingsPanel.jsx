@@ -9,6 +9,7 @@ export function SettingsPanel({ onUpdated }) {
   const isDark = useTheme();
   const [form, setForm] = useState({
     name: '', storeName: '', storeSlug: '', bio: '', themeColor: '#8b5cf6',
+    seoTitle: '', seoDescription: '', customDomain: '', fontFamily: 'Inter',
     socialLinks: { instagram: '', twitter: '', youtube: '', tiktok: '', website: '' },
     linkBlocks: []
   });
@@ -21,6 +22,8 @@ export function SettingsPanel({ onUpdated }) {
     settingsApi.profile().then((profile) => setForm({
       name: profile.name || '', storeName: profile.storeName || '', storeSlug: profile.storeSlug || '',
       bio: profile.bio || '', themeColor: profile.themeColor || '#8b5cf6',
+      seoTitle: profile.seoTitle || '', seoDescription: profile.seoDescription || '',
+      customDomain: profile.customDomain || '', fontFamily: profile.fontFamily || 'Inter',
       socialLinks: { instagram: '', twitter: '', youtube: '', tiktok: '', website: '', ...profile.socialLinks },
       linkBlocks: profile.linkBlocks || []
     })).catch((e) => setError(e.message)).finally(() => setLoading(false));
@@ -80,6 +83,30 @@ export function SettingsPanel({ onUpdated }) {
         <FormField label="Theme color" isDark={isDark}>
           <input className={cn(ui.input(isDark), 'h-10 cursor-pointer p-1')} type="color" value={form.themeColor} onChange={(e) => setForm({ ...form, themeColor: e.target.value })}/>
         </FormField>
+
+        <section className={cn('mt-1.5 border-b pb-3.5', isDark ? 'border-violet-300/10' : 'border-violet-200/15')}>
+          <h3 className={ui.h3}>SEO & sharing</h3>
+        </section>
+        <FormField label="SEO title" isDark={isDark}>
+          <input className={ui.input(isDark)} value={form.seoTitle} onChange={(e) => setForm({ ...form, seoTitle: e.target.value })} placeholder="Your store name | Digital products"/>
+        </FormField>
+        <FormField label="SEO description" isDark={isDark}>
+          <textarea className={ui.textarea(isDark)} value={form.seoDescription} onChange={(e) => setForm({ ...form, seoDescription: e.target.value })} maxLength={300} placeholder="Describe your store for search engines..."/>
+        </FormField>
+        <FormField label="Custom domain (optional)" isDark={isDark}>
+          <input className={ui.input(isDark)} value={form.customDomain} onChange={(e) => setForm({ ...form, customDomain: e.target.value })} placeholder="shop.yourdomain.com"/>
+        </FormField>
+        {form.storeSlug && (
+          <div className={cn('rounded-xl border p-4 text-center', isDark ? 'border-violet-300/15 bg-[#110e1a]' : 'border-violet-200/30 bg-gray-50')}>
+            <p className={cn('mb-3 text-xs', ui.muted(isDark))}>Share your store with a QR code</p>
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`${window.location.origin}/store/${form.storeSlug}`)}`}
+              alt="Store QR code"
+              className="mx-auto rounded-lg"
+            />
+            <small className={cn('mt-3 block text-[10px]', ui.muted(isDark))}>{window.location.origin}/store/{form.storeSlug}</small>
+          </div>
+        )}
 
         <section className={cn('mt-1.5 flex items-center gap-[11px] border-b pb-3.5', isDark ? 'border-violet-300/10' : 'border-violet-200/15')}>
           <div className="grid h-[37px] w-[37px] place-items-center rounded-[11px] bg-violet-500/11 text-[#b79fff]"><Link2 size={19}/></div>
