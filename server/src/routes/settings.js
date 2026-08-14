@@ -12,6 +12,10 @@ const profileSchema = z.object({
   storeSlug: z.string().min(3).max(60).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Use lowercase letters, numbers, and single hyphens only').optional(),
   bio: z.string().max(500).optional(),
   themeColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  seoTitle: z.string().max(120).optional(),
+  seoDescription: z.string().max(300).optional(),
+  customDomain: z.string().max(200).optional(),
+  fontFamily: z.string().max(50).optional(),
   socialLinks: z.object({ instagram: z.string().optional(), twitter: z.string().optional(), youtube: z.string().optional(), tiktok: z.string().optional(), website: z.string().optional() }).optional(),
   linkBlocks: z.array(linkBlockSchema).max(20).optional()
 });
@@ -19,8 +23,20 @@ const profileSchema = z.object({
 settingsRouter.use(requireAuth, requireCreator);
 settingsRouter.get('/profile', async (req, res, next) => {
   try {
-    const user = await User.findById(req.auth.sub).select('name email role storeName storeSlug avatar bio themeColor socialLinks linkBlocks');
+    const user = await User.findById(req.auth.sub).select('name email role storeName storeSlug avatar bio themeColor socialLinks linkBlocks seoTitle seoDescription customDomain fontFamily');
     if (!user) return res.status(404).json({ message: 'Profile not found' });
+    res.json(user);
+  } catch (error) { next(error); }
+});
+settingsRouter.post('/apply-branding', async (req, res, next) => {
+  try {
+    const { colorPalette, brandName, tagline } = req.body;
+    const updates = {};
+    if (colorPalette?.[0]) updates.themeColor = colorPalette[0];
+    if (brandName) updates.storeName = brandName;
+    if (tagline) updates.bio = tagline;
+    const user = await User.findByIdAndUpdate(req.auth.sub, updates, { new: true })
+      .select('name email role storeName storeSlug avatar bio themeColor socialLinks linkBlocks seoTitle seoDescription customDomain fontFamily');
     res.json(user);
   } catch (error) { next(error); }
 });
@@ -30,7 +46,8 @@ settingsRouter.patch('/profile', async (req, res, next) => {
     if (input.storeSlug && await User.exists({ storeSlug: input.storeSlug, _id: { $ne: req.auth.sub } })) {
       return res.status(409).json({ message: 'That storefront URL is already taken' });
     }
-    const user = await User.findByIdAndUpdate(req.auth.sub, input, { new: true }).select('name email role storeName storeSlug avatar bio themeColor socialLinks linkBlocks');
+    const user = await User.findByIdAndUpdate(req.auth.sub, input, { new: true })
+      .select('name email role storeName storeSlug avatar bio themeColor socialLinks linkBlocks seoTitle seoDescription customDomain fontFamily');
     res.json(user);
   } catch (error) { next(error); }
 });
