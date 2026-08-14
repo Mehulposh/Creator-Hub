@@ -14,6 +14,7 @@ const schema = z.object({
   name: z.string().min(2).max(100),
   description: z.string().max(2000).optional(),
   status: z.enum(['draft', 'published']).optional(),
+  slug: z.string().min(3).max(60).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
   steps: z.array(stepSchema).max(10).optional()
 });
 
