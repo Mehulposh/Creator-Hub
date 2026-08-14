@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ExternalLink, PackagePlus, Plus, Trash2, X } from 'lucide-react';
-import { productApi } from '../lib/api';
+import { ExternalLink, PackagePlus, Plus, Trash2, Upload, X } from 'lucide-react';
+import { productApi, uploadApi } from '../lib/api';
 import { useTheme, ui } from '../lib/ui';
 import { SectionHead, LoadingBlock, EmptyBlock, ModalShell, FormField, StatusPill } from '../components/ui';
 import { cn } from '../lib/cn';
 
-const emptyProduct = { title: '', description: '', price: '', type: 'digital_download', status: 'draft', coverColor: '#8b5cf6', downloadUrl: '', downloadLimit: 5 };
+const emptyProduct = { title: '', description: '', price: '', type: 'digital_download', status: 'draft', coverColor: '#8b5cf6', downloadUrl: '', downloadLimit: 5, fileUrl: '', fileFilename: '', licenseType: 'personal' };
 
 export function ProductPanel() {
   const isDark = useTheme();
@@ -15,6 +15,7 @@ export function ProductPanel() {
   const [form, setForm] = useState(emptyProduct);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
 
   const load = async () => {
@@ -24,7 +25,7 @@ export function ProductPanel() {
 
   const openEdit = (product) => {
     setEditing(product._id);
-    setForm({ title: product.title, description: product.description || '', price: product.price, type: product.type, status: product.status, coverColor: product.coverColor, downloadUrl: product.downloadUrl || '', downloadLimit: product.downloadLimit || 5 });
+    setForm({ title: product.title, description: product.description || '', price: product.price, type: product.type, status: product.status, coverColor: product.coverColor, downloadUrl: product.downloadUrl || '', downloadLimit: product.downloadLimit || 5, fileUrl: product.fileUrl || '', fileFilename: product.fileFilename || '', licenseType: product.licenseType || 'personal' });
     setOpen(true);
   };
 
@@ -169,8 +170,31 @@ export function ProductPanel() {
               </FormField>
             </div>
 
-            <FormField label="Download URL (for digital products)" isDark={isDark}>
+            <FormField label="Upload product file (PDF, ZIP, etc.)" isDark={isDark}>
+              <input type="file" className={ui.input(isDark)} onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                  setUploading(true);
+                  const result = await uploadApi.productFile(file);
+                  setForm({ ...form, fileUrl: result.url, fileFilename: result.filename, downloadUrl: result.url });
+                } catch (err) { setError(err.message); } finally { setUploading(false); }
+              }}/>
+              {form.fileFilename && <small className={cn('mt-1 block text-[10px] text-emerald-400', ui.muted(isDark))}><Upload size={12} className="inline"/> {form.fileFilename}</small>}
+              {uploading && <small className="text-[10px] text-violet-400">Uploading...</small>}
+            </FormField>
+
+            <FormField label="Download URL (external link, optional)" isDark={isDark}>
               <input type="url" className={ui.input(isDark)} value={form.downloadUrl} onChange={(e) => setForm({ ...form, downloadUrl: e.target.value })} placeholder="https://..." />
+            </FormField>
+
+            <FormField label="License type" isDark={isDark}>
+              <select className={ui.input(isDark)} value={form.licenseType} onChange={(e) => setForm({ ...form, licenseType: e.target.value })}>
+                <option value="personal">Personal use</option>
+                <option value="commercial">Commercial use</option>
+                <option value="extended">Extended license</option>
+                <option value="none">No license specified</option>
+              </select>
             </FormField>
 
             <FormField label="Download limit" isDark={isDark}>
