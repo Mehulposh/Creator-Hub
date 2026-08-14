@@ -48,5 +48,14 @@ export async function runAutomations(creator, trigger, context = {}) {
       const { sendEmail } = await import('../services/email.js');
       await sendEmail({ to: context.email, subject: automation.name, html: automation.template || `<p>Thank you for connecting with us!</p>` });
     }
+    if (automation.action === 'add_tag' && context.email && automation.template) {
+      const { Contact } = await import('../models/Contact.js');
+      const tag = automation.template.trim();
+      await Contact.findOneAndUpdate(
+        { creator, email: context.email.toLowerCase() },
+        { $addToSet: { tags: tag } },
+        { upsert: true, setDefaultsOnInsert: { name: context.email.split('@')[0], status: 'lead' } }
+      );
+    }
   }
 }
