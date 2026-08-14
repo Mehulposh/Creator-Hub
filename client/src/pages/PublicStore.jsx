@@ -8,7 +8,7 @@ import { ThemeToggle } from '../components/ThemeToggle';
 import { cartKey, useAppStore } from '../store/useAppStore';
 import { cn } from '../lib/cn';
 
-const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const apiUrl = import.meta.env.VITE_API_URL || 'https://creator-hub-lwls.onrender.com/api';
 
 export function PublicStore({ slug }) {
   const [store, setStore] = useState(null);
