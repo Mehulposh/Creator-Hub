@@ -5,6 +5,10 @@ import { z } from 'zod';
 import { Order } from '../models/Order.js';
 import { Product } from '../models/Product.js';
 import { Course } from '../models/Course.js';
+import { Membership } from '../models/Membership.js';
+import { Bundle } from '../models/Bundle.js';
+import { Subscription } from '../models/Subscription.js';
+import { Enrollment } from '../models/Enrollment.js';
 import { Contact } from '../models/Contact.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireCreator } from '../middleware/creator.js';
@@ -26,7 +30,7 @@ const checkoutSchema = z.object({
 });
 
 const cartItemSchema = z.object({
-  type: z.enum(['product', 'course']),
+  type: z.enum(['product', 'course', 'membership', 'bundle']),
   id: z.string().min(1)
 });
 
@@ -45,9 +49,19 @@ async function resolveCartItem(item) {
     if (!product) throw new Error('A product in your cart is no longer available');
     return { type: 'product', doc: product, title: product.title, description: product.description, price: product.price, creator: product.creator };
   }
-  const course = await Course.findOne({ _id: item.id, status: 'published' });
-  if (!course) throw new Error('A course in your cart is no longer available');
-  return { type: 'course', doc: course, title: course.title, description: course.description, price: course.price, creator: course.creator };
+  if (item.type === 'course') {
+    const course = await Course.findOne({ _id: item.id, status: 'published' });
+    if (!course) throw new Error('A course in your cart is no longer available');
+    return { type: 'course', doc: course, title: course.title, description: course.description, price: course.price, creator: course.creator };
+  }
+  if (item.type === 'membership') {
+    const membership = await Membership.findOne({ _id: item.id, status: 'published' });
+    if (!membership) throw new Error('A membership in your cart is no longer available');
+    return { type: 'membership', doc: membership, title: membership.name, description: membership.description, price: membership.price, creator: membership.creator };
+  }
+  const bundle = await Bundle.findOne({ _id: item.id, status: 'published' });
+  if (!bundle) throw new Error('A bundle in your cart is no longer available');
+  return { type: 'bundle', doc: bundle, title: bundle.title, description: bundle.description, price: bundle.price, creator: bundle.creator };
 }
 
 commerceRouter.get('/payment-mode', (_req, res) => {
@@ -126,6 +140,8 @@ async function createCheckoutSession({ email, successUrl, cancelUrl, couponCode,
       itemType: item.type,
       product: item.type === 'product' ? item.doc._id : undefined,
       course: item.type === 'course' ? item.doc._id : undefined,
+      membership: item.type === 'membership' ? item.doc._id : undefined,
+      bundle: item.type === 'bundle' ? item.doc._id : undefined,
       buyerEmail: email,
       amount: Math.round(share * 100) / 100,
       couponCode: index === 0 ? appliedCoupon : undefined,
@@ -224,7 +240,8 @@ commerceRouter.get('/download/:orderId/:token', async (req, res, next) => {
     const order = await Order.findOne({ _id: req.params.orderId, downloadToken: req.params.token, status: 'paid' }).populate('product');
     if (!order) return res.status(404).json({ available: false, message: 'Download not available. Check your email or visit My Purchases.' });
     const product = order.product;
-    if (!product?.downloadUrl) {
+    const downloadLink = product?.fileUrl || product?.downloadUrl;
+    if (!downloadLink) {
       return res.json({
         available: false,
         message: 'The creator has not added a download file for this product yet. Visit My Purchases later or contact the seller.',
@@ -238,7 +255,7 @@ commerceRouter.get('/download/:orderId/:token', async (req, res, next) => {
     await order.save();
     res.json({
       available: true,
-      downloadUrl: product.downloadUrl,
+      downloadUrl: downloadLink,
       title: product.title,
       remaining: (product.downloadLimit || 5) - order.downloadCount
     });
@@ -256,9 +273,71 @@ export async function fulfillOrder(order, itemOrProduct, affiliateCode = '') {
   if (item.type === 'product') {
     const product = item.doc || await Product.findById(order.product);
     if (product) { product.sales += 1; await product.save(); }
-  } else {
+  } else if (item.type === 'course') {
     const course = item.doc || await Course.findById(order.course);
-    if (course) { course.enrolled += 1; await course.save(); }
+    if (course) {
+      course.enrolled += 1;
+      await course.save();
+      await Enrollment.findOneAndUpdate(
+        { course: course._id, buyerEmail: order.buyerEmail },
+        { $setOnInsert: { creator: order.creator, progress: 0, completedLessons: [] } },
+        { upsert: true, new: true }
+      );
+    }
+  } else if (item.type === 'membership') {
+    const membership = item.doc || await Membership.findById(order.membership);
+    if (membership) {
+      membership.members += 1;
+      await membership.save();
+      const expiresAt = new Date();
+      expiresAt.setMonth(expiresAt.getMonth() + (membership.interval === 'annual' ? 12 : 1));
+      await Subscription.create({
+        creator: order.creator,
+        membership: membership._id,
+        buyerEmail: order.buyerEmail,
+        amount: order.amount,
+        interval: membership.interval,
+        status: 'active',
+        expiresAt
+      });
+    }
+  } else if (item.type === 'bundle') {
+    const bundle = item.doc || await Bundle.findById(order.bundle);
+    if (bundle) {
+      bundle.sales += 1;
+      await bundle.save();
+      for (const productId of bundle.productIds || []) {
+        await Order.create({
+          creator: order.creator,
+          itemType: 'product',
+          product: productId,
+          buyerEmail: order.buyerEmail,
+          amount: 0,
+          status: 'paid',
+          paymentProvider: order.paymentProvider,
+          downloadToken: crypto.randomBytes(24).toString('hex')
+        });
+      }
+      for (const courseId of bundle.courseIds || []) {
+        const courseOrder = await Order.create({
+          creator: order.creator,
+          itemType: 'course',
+          course: courseId,
+          buyerEmail: order.buyerEmail,
+          amount: 0,
+          status: 'paid',
+          paymentProvider: order.paymentProvider,
+          downloadToken: crypto.randomBytes(24).toString('hex')
+        });
+        await Enrollment.findOneAndUpdate(
+          { course: courseId, buyerEmail: order.buyerEmail },
+          { $setOnInsert: { creator: order.creator, progress: 0, completedLessons: [] } },
+          { upsert: true }
+        );
+        const course = await Course.findById(courseId);
+        if (course) { course.enrolled += 1; await course.save(); }
+      }
+    }
   }
 
   if (order.couponCode) {
