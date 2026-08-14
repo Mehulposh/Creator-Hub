@@ -10,7 +10,10 @@ const productSchema = z.object({
   type: z.enum(['digital_download', 'template', 'course', 'membership', 'coaching']).optional(),
   status: z.enum(['draft', 'published']).optional(), coverColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   downloadUrl: z.string().url().optional().or(z.literal('')).transform((v) => v || undefined),
-  downloadLimit: z.coerce.number().min(1).max(100).optional()
+  downloadLimit: z.coerce.number().min(1).max(100).optional(),
+  fileUrl: z.string().url().optional().or(z.literal('')).transform((v) => v || undefined),
+  fileFilename: z.string().max(255).optional(),
+  licenseType: z.enum(['personal', 'commercial', 'extended', 'none']).optional()
 });
 
 productRouter.use(requireAuth, requireCreator);
