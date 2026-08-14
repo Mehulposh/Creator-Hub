@@ -53,6 +53,12 @@ app.post('/api/commerce/webhook', express.raw({ type: 'application/json' }), asy
 
 app.use('/api', rateLimit({ windowMs: 15 * 60 * 1000, limit: 500, standardHeaders: 'draft-7', legacyHeaders: false }));
 app.use(express.json({ limit: '1mb' }));
+app.get('/', (_req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'Creator Hub API is running',
+  });
+});
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRouter);
 app.use('/api/ai', aiRouter);
@@ -89,8 +95,19 @@ app.use((error, _req, res, _next) => {
 });
 
 async function start() {
-  if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is required');
+  if (!process.env.MONGODB_URI) {
+    throw new Error('MONGODB_URI is required');
+  }
+
   await mongoose.connect(process.env.MONGODB_URI);
-  app.listen(port, () => console.log(`API listening on http://localhost:${port}`));
+
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`API listening on port ${port}`);
+  });
 }
+
+start().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
 start().catch((error) => { console.error(error); process.exit(1); });
