@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  BookOpen, CalendarDays, Download, ExternalLink, LoaderCircle, LogOut,
-  Mail, Package, ShieldCheck, Sparkles, Store
+  Bell, BookOpen, CalendarDays, Download, ExternalLink, FileText, LoaderCircle, LogOut,
+  Mail, Package, ShieldCheck, Sparkles, Store, Video
 } from 'lucide-react';
 import { commerceApi, customerApi } from '../lib/api';
 import { ThemeToggle } from '../components/ThemeToggle';
@@ -29,16 +29,23 @@ export function CustomerPortal() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [library, setLibrary] = useState(null);
-  const [activeTab, setActiveTab] = useState('products');
+  const urlTab = new URLSearchParams(window.location.search).get('tab');
+  const [activeTab, setActiveTab] = useState(urlTab === 'sessions' || urlTab === 'courses' ? urlTab : 'products');
   const [expandedCourse, setExpandedCourse] = useState(null);
   const [downloadMsg, setDownloadMsg] = useState('');
+  const [notifications, setNotifications] = useState([]);
 
-  const loadLibrary = async () => {
-    setLoading(true);
+  const loadLibrary = useCallback(async ({ silent = false } = {}) => {
+    if (!customerApi.isLoggedIn()) return;
+    if (!silent) setLoading(true);
     setError('');
     try {
-      const data = await customerApi.library();
+      const [data, notes] = await Promise.all([
+        customerApi.library(),
+        customerApi.notifications().catch(() => [])
+      ]);
       setLibrary(data);
+      setNotifications(notes);
       const slug = data.products[0]?.storeSlug || data.courses[0]?.storeSlug || data.sessions[0]?.storeSlug;
       if (slug) {
         setStoreSlug(slug);
@@ -51,9 +58,9 @@ export function CustomerPortal() {
       }
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, [setLastStoreSlug]);
 
   useEffect(() => {
     if (urlStore) setLastStoreSlug(urlStore);
@@ -61,17 +68,33 @@ export function CustomerPortal() {
 
   useEffect(() => {
     if (customerApi.isLoggedIn()) loadLibrary();
-  }, []);
+  }, [loadLibrary]);
+
+  useEffect(() => {
+    if (step !== 'library') return;
+    const refresh = () => loadLibrary({ silent: true });
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [step, loadLibrary]);
 
   const requestCode = async (e) => {
     e.preventDefault();
-    if (!email.trim()) return;
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) return;
     setLoading(true);
     setError('');
     setLoginMsg('');
     setDebugCode('');
     try {
-      const result = await customerApi.requestLogin(email.trim());
+      const result = await customerApi.requestLogin(normalized);
+      setEmail(normalized);
       setLoginMsg(result.message);
       if (result.debugCode) setDebugCode(result.debugCode);
       setStep('code');
@@ -84,20 +107,16 @@ export function CustomerPortal() {
 
   const verifyCode = async (e) => {
     e.preventDefault();
+    const normalized = email.trim().toLowerCase();
     setLoading(true);
     setError('');
     try {
-      const result = await customerApi.verifyLogin(email.trim(), code.trim());
-      customerApi.saveSession(result.token, email.trim());
-      setLibrary(result.library);
+      const result = await customerApi.verifyLogin(normalized, code.trim());
+      customerApi.saveSession(result.token, normalized);
+      setEmail(normalized);
       setStep('library');
-      const slug = result.library.products[0]?.storeSlug
-        || result.library.courses[0]?.storeSlug
-        || result.library.sessions[0]?.storeSlug;
-      if (slug) {
-        setStoreSlug(slug);
-        setLastStoreSlug(slug);
-      }
+      await loadLibrary();
+      if (result.library?.stats?.sessions > 0) setActiveTab('sessions');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -112,6 +131,28 @@ export function CustomerPortal() {
     setStep('email');
     setError('');
   };
+
+  const openTab = (id) => {
+    setActiveTab(id);
+    if (id === 'sessions' && step === 'library') loadLibrary({ silent: true });
+  };
+
+  const dismissNotification = async (id) => {
+    try {
+      await customerApi.readNotification(id);
+      setNotifications((prev) => prev.map((n) => n._id === id ? { ...n, read: true } : n));
+    } catch {
+      // ignore
+    }
+  };
+
+  const viewSession = async (noteId) => {
+    setActiveTab('sessions');
+    await dismissNotification(noteId);
+    await loadLibrary({ silent: true });
+  };
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const download = async (purchase) => {
     setDownloadMsg('');
@@ -149,9 +190,14 @@ export function CustomerPortal() {
         <nav className="flex items-center gap-3">
           <ThemeToggle/>
           {step === 'library' && (
-            <button type="button" onClick={logout} className={cn('inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold', isDark ? 'bg-violet-500/15 text-[#d4c4ff]' : 'bg-violet-100 text-violet-700')}>
-              <LogOut size={14}/> Sign out
-            </button>
+            <>
+              <button type="button" onClick={() => loadLibrary({ silent: true })} className={cn('inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold', isDark ? 'bg-violet-500/15 text-[#d4c4ff]' : 'bg-violet-100 text-violet-700')}>
+                Refresh
+              </button>
+              <button type="button" onClick={logout} className={cn('inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold', isDark ? 'bg-violet-500/15 text-[#d4c4ff]' : 'bg-violet-100 text-violet-700')}>
+                <LogOut size={14}/> Sign out
+              </button>
+            </>
           )}
           {storeSlug && (
             <a href={`/store/${storeSlug}`} className={cn('inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold no-underline', isDark ? 'bg-violet-500/15 text-[#d4c4ff]' : 'bg-violet-100 text-violet-700')}>
@@ -230,6 +276,26 @@ export function CustomerPortal() {
 
         {step === 'library' && (
           <>
+            {unreadCount > 0 && (
+              <div className="mb-6 space-y-2">
+                {notifications.filter((n) => !n.read).map((note) => (
+                  <div key={note._id} className={cn('flex items-start gap-3 rounded-2xl border px-4 py-3', isDark ? 'border-violet-300/15 bg-[#211b31]' : 'border-violet-200/30 bg-white')}>
+                    <Bell size={18} className="mt-0.5 shrink-0 text-violet-400"/>
+                    <div className="flex-1">
+                      <b className="text-sm">{note.title}</b>
+                      <p className={cn('mt-1 whitespace-pre-wrap text-xs leading-relaxed', isDark ? 'text-[#c5bdd7]' : 'text-gray-600')}>{note.message}</p>
+                      {note.type === 'session' && (
+                        <button type="button" className="mt-2 text-xs font-semibold text-violet-400" onClick={() => viewSession(note._id)}>
+                          View session →
+                        </button>
+                      )}
+                    </div>
+                    <button type="button" className="text-[10px] text-gray-400" onClick={() => dismissNotification(note._id)}>Dismiss</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {library && (
               <div className="mb-6 grid grid-cols-3 gap-3">
                 {[
@@ -251,7 +317,7 @@ export function CustomerPortal() {
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setActiveTab(id)}
+                  onClick={() => openTab(id)}
                   className={cn(
                     'inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition',
                     activeTab === id ? 'bg-[#916dfa] text-white' : isDark ? 'text-[#c5bdd7]' : 'text-gray-500'
@@ -273,6 +339,9 @@ export function CustomerPortal() {
               <div className={cn('rounded-2xl border px-6 py-14 text-center', isDark ? 'border-violet-300/15 bg-[#211b31]' : 'border-violet-200/30 bg-white')}>
                 <p className={cn('text-sm', isDark ? 'text-[#b5acbf]' : 'text-gray-500')}>
                   No {activeTab} in your library yet.
+                  {activeTab === 'products' && library?.stats?.sessions > 0 && (
+                    <> You have {library.stats.sessions} booked session{library.stats.sessions === 1 ? '' : 's'} — open the <button type="button" className="font-semibold text-violet-400" onClick={() => openTab('sessions')}>Sessions</button> tab.</>
+                  )}
                 </p>
               </div>
             ) : (
@@ -291,6 +360,25 @@ export function CustomerPortal() {
                       {session.status}
                     </span>
                     {session.notes && <p className={cn('mt-3 text-xs leading-relaxed', isDark ? 'text-[#c5bdd7]' : 'text-gray-600')}>{session.notes}</p>}
+                    {session.status === 'pending' && (
+                      <p className="mt-3 text-[11px] text-amber-400">Awaiting creator confirmation — you&apos;ll be notified when the meeting link is ready.</p>
+                    )}
+                    {session.joinLink && session.status === 'confirmed' && (
+                      <a
+                        href={session.joinLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[#916dfa] px-3.5 py-2 text-xs font-semibold text-white no-underline"
+                      >
+                        <Video size={14}/> Join session
+                      </a>
+                    )}
+                    {session.joinLink && session.status !== 'confirmed' && session.status !== 'pending' && (
+                      <p className="mt-3 text-[11px] text-gray-400">This session has ended.</p>
+                    )}
+                    {!session.joinLink && session.status !== 'pending' && session.status === 'confirmed' && (
+                      <p className="mt-3 text-[11px] text-gray-400">Join link will appear here once your creator adds it.</p>
+                    )}
                   </article>
                 ))}
 
@@ -335,7 +423,31 @@ export function CustomerPortal() {
                               <li key={i} className={cn('border-b py-3 text-xs last:border-0', isDark ? 'border-violet-300/10' : 'border-violet-200/15')}>
                                 <b>{lesson.title}</b>
                                 <span className="ml-2 text-[10px] text-gray-400">{lesson.duration} min</span>
-                                {lesson.content && <p className={cn('mt-2 whitespace-pre-wrap text-[11px]', isDark ? 'text-[#c5bdd7]' : 'text-gray-600')}>{lesson.content}</p>}
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {lesson.pdfUrl && (
+                                    <a
+                                      href={lesson.pdfUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex items-center gap-1.5 rounded-lg bg-[#916dfa] px-3 py-1.5 text-[11px] font-semibold text-white no-underline"
+                                    >
+                                      <FileText size={13}/> {lesson.pdfFilename || 'View PDF'}
+                                    </a>
+                                  )}
+                                  {lesson.meetLink && (
+                                    <a
+                                      href={lesson.meetLink}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className={cn('inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-semibold no-underline', isDark ? 'bg-blue-500/15 text-blue-300' : 'bg-blue-100 text-blue-700')}
+                                    >
+                                      <Video size={13}/> Join live session
+                                    </a>
+                                  )}
+                                </div>
+                                {!lesson.pdfUrl && !lesson.meetLink && (
+                                  <p className={cn('mt-2 text-[11px]', isDark ? 'text-[#9d94ad]' : 'text-gray-400')}>Materials coming soon.</p>
+                                )}
                               </li>
                             ))}
                           </ul>
