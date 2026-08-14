@@ -12,7 +12,7 @@ const config = {
   Analytics: { title: 'Business analytics', text: 'A clear view of the signals that matter to your creator business.', action: null, icon: BarChart3 }
 };
 
-const initial = { name: '', email: '', status: 'lead', tags: '', clientName: '', clientEmail: '', title: '', startsAt: '', duration: '60', subject: '', content: '', audience: 'all' };
+const initial = { name: '', email: '', status: 'lead', tags: '', clientName: '', clientEmail: '', title: '', startsAt: '', duration: '60', joinLink: '', subject: '', content: '', audience: 'all' };
 
 const tableCols = 'grid-cols-[2fr_1fr_1.6fr_0.8fr] max-[800px]:grid-cols-[1.6fr_0.8fr_1fr]';
 
@@ -24,6 +24,9 @@ export function GrowthPanel({ view }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(initial);
   const [error, setError] = useState('');
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState(null);
+  const [confirmLink, setConfirmLink] = useState('');
   const details = config[view];
 
   const load = async () => {
@@ -43,7 +46,7 @@ export function GrowthPanel({ view }) {
     try {
       let item;
       if (view === 'Customers') item = await contactApi.create({ name: form.name, email: form.email, status: form.status, tags: form.tags.split(',').map((tag) => tag.trim()).filter(Boolean) });
-      if (view === 'Bookings') item = await appointmentApi.create({ clientName: form.clientName, clientEmail: form.clientEmail, title: form.title, startsAt: form.startsAt, duration: Number(form.duration) });
+      if (view === 'Bookings') item = await appointmentApi.create({ clientName: form.clientName, clientEmail: form.clientEmail, title: form.title, startsAt: form.startsAt, duration: Number(form.duration), joinLink: form.joinLink || undefined });
       if (view === 'Campaigns') item = await campaignApi.create({ name: form.name, subject: form.subject, content: form.content, audience: form.audience });
       setItems([item, ...items]);
       setOpen(false);
@@ -55,6 +58,33 @@ export function GrowthPanel({ view }) {
     try {
       const updated = await campaignApi.send(campaign._id);
       setItems(items.map((item) => item._id === updated._id ? updated : item));
+    } catch (e) { setError(e.message); }
+  };
+
+  const updateJoinLink = async (id, current) => {
+    const link = window.prompt('Meeting join link (Google Meet, Zoom, etc.)', current || '');
+    if (link === null) return;
+    try {
+      const updated = await appointmentApi.update(id, { joinLink: link });
+      setItems(items.map((item) => item._id === updated._id ? updated : item));
+    } catch (e) { setError(e.message); }
+  };
+
+  const openConfirm = (item) => {
+    setConfirmTarget(item);
+    setConfirmLink(item.joinLink || '');
+    setConfirmOpen(true);
+  };
+
+  const confirmSession = async (e) => {
+    e.preventDefault();
+    if (!confirmLink.trim()) return;
+    try {
+      const updated = await appointmentApi.confirm(confirmTarget._id, confirmLink.trim());
+      setItems(items.map((item) => item._id === updated._id ? updated : item));
+      setConfirmOpen(false);
+      setConfirmTarget(null);
+      setConfirmLink('');
     } catch (e) { setError(e.message); }
   };
 
@@ -77,14 +107,30 @@ export function GrowthPanel({ view }) {
       ) : view === 'Analytics' ? (
         <Analytics data={analytics} isDark={isDark}/>
       ) : (
-        <List view={view} items={items} isDark={isDark} onSend={send} onOpen={() => setOpen(true)}/>
+        <List view={view} items={items} isDark={isDark} onSend={send} onOpen={() => setOpen(true)} onUpdateJoinLink={updateJoinLink} onConfirm={openConfirm}/>
       )}
       {open && <CreateModal view={view} form={form} setForm={setForm} submit={submit} close={() => setOpen(false)} isDark={isDark}/>}
+      {confirmOpen && (
+        <ModalShell isDark={isDark} onClose={() => setConfirmOpen(false)}>
+          <button type="button" className={ui.closeBtn(isDark)} onClick={() => setConfirmOpen(false)}><X size={19}/></button>
+          <form onSubmit={confirmSession}>
+            <p className={ui.eyebrow}>CONFIRM SESSION</p>
+            <h2 className={ui.h2}>Send meeting link</h2>
+            <p className={cn('mb-4 text-xs', ui.muted(isDark))}>
+              Confirm {confirmTarget?.clientName}&apos;s session on {confirmTarget && new Date(confirmTarget.startsAt).toLocaleString()}. The customer will be notified by email.
+            </p>
+            <FormField label="Google Meet / Zoom link" isDark={isDark}>
+              <input required type="url" className={ui.input(isDark)} value={confirmLink} onChange={(e) => setConfirmLink(e.target.value)} placeholder="https://meet.google.com/abc-defg-hij"/>
+            </FormField>
+            <button type="submit" className={cn(ui.primary, ui.wide)}>Confirm & notify customer</button>
+          </form>
+        </ModalShell>
+      )}
     </section>
   );
 }
 
-function List({ view, items, isDark, onSend, onOpen }) {
+function List({ view, items, isDark, onSend, onOpen, onUpdateJoinLink, onConfirm }) {
   if (!items.length) {
     return (
       <EmptyBlock
@@ -134,10 +180,30 @@ function List({ view, items, isDark, onSend, onOpen }) {
             <div>
               <h3 className={cn('mb-1 font-display text-sm font-semibold', ui.h3)}>{item.title}</h3>
               <p className={cn('m-0 text-[11px]', ui.muted(isDark))}>{item.clientName} · {item.clientEmail}</p>
+              {item.source === 'store' && (
+                <span className="mt-1 inline-block text-[10px] text-amber-400">Store booking</span>
+              )}
+              {item.notes && (
+                <p className={cn('mt-1 text-[10px] leading-snug', ui.muted(isDark))}>{item.notes}</p>
+              )}
+              {item.joinLink && item.status === 'confirmed' && (
+                <a href={item.joinLink} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[10px] text-violet-400 no-underline">
+                  Join link added
+                </a>
+              )}
             </div>
             <div className="text-right">
               <b className="block text-[11px]">{new Date(item.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</b>
               <small className={cn('mt-0.5 block text-[10px]', ui.muted(isDark))}>{item.duration} min</small>
+              {item.status === 'pending' ? (
+                <button type="button" className="mt-1 text-[10px] font-semibold text-emerald-400" onClick={() => onConfirm(item)}>
+                  Confirm & send link
+                </button>
+              ) : item.status === 'confirmed' && (
+                <button type="button" className="mt-1 text-[10px] text-violet-400" onClick={() => onUpdateJoinLink(item._id, item.joinLink)}>
+                  {item.joinLink ? 'Edit link' : 'Add link'}
+                </button>
+              )}
             </div>
             <span className="max-[550px]:hidden"><StatusPill status={item.status}/></span>
           </article>
@@ -258,6 +324,9 @@ function CreateModal({ view, form, setForm, submit, close, isDark }) {
               {input('startsAt', 'Date and time', 'datetime-local')}
               {input('duration', 'Minutes', 'number')}
             </div>
+            <FormField label="Live session link (Google Meet, Zoom, etc.)" isDark={isDark}>
+              <input type="url" className={ui.input(isDark)} value={form.joinLink} onChange={(e) => setForm({ ...form, joinLink: e.target.value })} placeholder="https://meet.google.com/abc-defg-hij"/>
+            </FormField>
           </>
         )}
         {view === 'Campaigns' && (
