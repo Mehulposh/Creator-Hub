@@ -1,11 +1,25 @@
 import { useEffect, useState } from 'react';
-import { Bell, BookOpen, Check, Crown, LoaderCircle, MessageSquare, Pencil, Plus, Send, Trash2, X } from 'lucide-react';
-import { communityApi, learningApi } from '../lib/api';
+import { Bell, BookOpen, Check, Crown, FileText, LoaderCircle, MessageSquare, Pencil, Plus, Send, Trash2, Video, X } from 'lucide-react';
+import { communityApi, learningApi, uploadApi } from '../lib/api';
 import { useTheme, ui } from '../lib/ui';
 import { SectionHead, LoadingBlock, EmptyBlock, ModalShell, FormField, StatusPill } from '../components/ui';
 import { cn } from '../lib/cn';
 
+const emptyLessonForm = { title: '', content: '', duration: 10, isPreview: false, meetLink: '', pdfUrl: '', pdfFilename: '' };
 const emptyForm = { title: '', name: '', description: '', price: '', interval: 'monthly', perks: '', content: '', category: 'discussion' };
+
+function buildLessonPayload(form, existing) {
+  return {
+    ...(existing?._id ? { _id: existing._id } : {}),
+    title: form.title,
+    content: form.content,
+    duration: Number(form.duration),
+    isPreview: form.isPreview,
+    meetLink: form.meetLink || '',
+    pdfUrl: form.pdfUrl || '',
+    pdfFilename: form.pdfFilename || ''
+  };
+}
 
 const copy = {
   Courses: ['Courses', 'Create a transformational learning experience for your audience.', 'New course'],
@@ -23,9 +37,11 @@ export function LearningPanel({ view }) {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [lessonOpen, setLessonOpen] = useState(null);
+  const [editingLessonIndex, setEditingLessonIndex] = useState(null);
   const [error, setError] = useState('');
   const [form, setForm] = useState(emptyForm);
-  const [lessonForm, setLessonForm] = useState({ title: '', content: '', duration: 10, isPreview: false });
+  const [lessonForm, setLessonForm] = useState(emptyLessonForm);
+  const [pdfUploading, setPdfUploading] = useState(false);
   const [notifications, setNotifications] = useState([]);
 
   const load = async () => {
@@ -47,6 +63,19 @@ export function LearningPanel({ view }) {
     setOpen(true);
   };
 
+  const openEditMembership = (membership) => {
+    setEditingId(membership._id);
+    setForm({
+      ...emptyForm,
+      name: membership.name,
+      description: membership.description || '',
+      price: String(membership.price ?? 0),
+      interval: membership.interval || 'monthly',
+      perks: (membership.perks || []).join(', ')
+    });
+    setOpen(true);
+  };
+
   const closeModal = () => { setOpen(false); setEditingId(null); setForm(emptyForm); };
 
   const submit = async (event) => {
@@ -58,8 +87,17 @@ export function LearningPanel({ view }) {
         item = editingId ? await learningApi.updateCourse(editingId, payload) : await learningApi.createCourse(payload);
         setItems(editingId ? items.map((c) => c._id === item._id ? item : c) : [item, ...items]);
       } else if (view === 'Memberships') {
-        item = await learningApi.createMembership({ name: form.name, description: form.description, price: Number(form.price), interval: form.interval, perks: form.perks.split(',').map((x) => x.trim()).filter(Boolean) });
-        setItems([item, ...items]);
+        const payload = {
+          name: form.name,
+          description: form.description,
+          price: Number(form.price),
+          interval: form.interval,
+          perks: form.perks.split(',').map((x) => x.trim()).filter(Boolean)
+        };
+        item = editingId
+          ? await learningApi.updateMembership(editingId, payload)
+          : await learningApi.createMembership(payload);
+        setItems(editingId ? items.map((m) => m._id === item._id ? item : m) : [item, ...items]);
       } else if (view === 'Community') {
         item = await communityApi.createPost({ content: form.content, category: form.category });
         setItems([item, ...items]);
@@ -84,14 +122,88 @@ export function LearningPanel({ view }) {
     } catch (e) { setError(e.message); }
   };
 
-  const addLesson = async (e) => {
-    e.preventDefault();
-    const course = items.find((c) => c._id === lessonOpen);
-    const lessons = [...(course.lessons || []), { title: lessonForm.title, content: lessonForm.content, duration: Number(lessonForm.duration), isPreview: lessonForm.isPreview }];
-    const updated = await learningApi.updateCourse(lessonOpen, { lessons });
-    setItems(items.map((c) => c._id === updated._id ? updated : c));
+  const deleteMembership = async (id) => {
+    if (!confirm('Delete this membership? This cannot be undone.')) return;
+    try {
+      await learningApi.deleteMembership(id);
+      setItems(items.filter((m) => m._id !== id));
+    } catch (e) { setError(e.message); }
+  };
+
+  const togglePublishMembership = async (membership) => {
+    try {
+      const status = membership.status === 'published' ? 'draft' : 'published';
+      const updated = await learningApi.updateMembership(membership._id, { status });
+      setItems(items.map((m) => m._id === updated._id ? updated : m));
+    } catch (e) { setError(e.message); }
+  };
+
+  const closeLessonModal = () => {
     setLessonOpen(null);
-    setLessonForm({ title: '', content: '', duration: 10, isPreview: false });
+    setEditingLessonIndex(null);
+    setLessonForm(emptyLessonForm);
+  };
+
+  const openAddLesson = (courseId) => {
+    setEditingLessonIndex(null);
+    setLessonForm(emptyLessonForm);
+    setLessonOpen(courseId);
+  };
+
+  const openEditLesson = (courseId, lesson, index) => {
+    setEditingLessonIndex(index);
+    setLessonForm({
+      title: lesson.title || '',
+      content: lesson.content || '',
+      duration: lesson.duration ?? 10,
+      isPreview: Boolean(lesson.isPreview),
+      meetLink: lesson.meetLink || '',
+      pdfUrl: lesson.pdfUrl || '',
+      pdfFilename: lesson.pdfFilename || ''
+    });
+    setLessonOpen(courseId);
+  };
+
+  const saveLesson = async (e) => {
+    e.preventDefault();
+    try {
+      const course = items.find((c) => c._id === lessonOpen);
+      const payload = buildLessonPayload(lessonForm, editingLessonIndex !== null ? course.lessons[editingLessonIndex] : null);
+      const lessons = editingLessonIndex !== null
+        ? course.lessons.map((l, i) => (i === editingLessonIndex ? payload : l))
+        : [...(course.lessons || []), payload];
+      const updated = await learningApi.updateCourse(lessonOpen, { lessons });
+      setItems(items.map((c) => c._id === updated._id ? updated : c));
+      closeLessonModal();
+    } catch (e) { setError(e.message); }
+  };
+
+  const deleteLesson = async (courseId, index) => {
+    if (!confirm('Delete this lesson? This cannot be undone.')) return;
+    try {
+      const course = items.find((c) => c._id === courseId);
+      const lessons = course.lessons.filter((_, i) => i !== index);
+      const updated = await learningApi.updateCourse(courseId, { lessons });
+      setItems(items.map((c) => c._id === updated._id ? updated : c));
+      if (lessonOpen === courseId && editingLessonIndex === index) closeLessonModal();
+    } catch (e) { setError(e.message); }
+  };
+
+  const uploadPdf = async (file) => {
+    if (!file || file.type !== 'application/pdf') {
+      setError('Please select a PDF file.');
+      return;
+    }
+    setPdfUploading(true);
+    setError('');
+    try {
+      const result = await uploadApi.lessonPdf(file);
+      setLessonForm((prev) => ({ ...prev, pdfUrl: result.url, pdfFilename: result.filename }));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPdfUploading(false);
+    }
   };
 
   const markRead = async (item) => {
@@ -122,23 +234,42 @@ export function LearningPanel({ view }) {
           items={items}
           open={openCreate}
           isDark={isDark}
-          onAddLesson={view === 'Courses' ? setLessonOpen : null}
-          onEdit={view === 'Courses' ? openEdit : null}
-          onDelete={view === 'Courses' ? deleteCourse : null}
-          onTogglePublish={view === 'Courses' ? togglePublish : null}
+          onAddLesson={view === 'Courses' ? openAddLesson : null}
+          onEditLesson={view === 'Courses' ? openEditLesson : null}
+          onDeleteLesson={view === 'Courses' ? deleteLesson : null}
+          onEdit={view === 'Courses' ? openEdit : view === 'Memberships' ? openEditMembership : null}
+          onDelete={view === 'Courses' ? deleteCourse : view === 'Memberships' ? deleteMembership : null}
+          onTogglePublish={view === 'Courses' ? togglePublish : view === 'Memberships' ? togglePublishMembership : null}
         />
       )}
       {open && <Modal view={view} form={form} setForm={setForm} close={closeModal} submit={submit} editing={!!editingId} isDark={isDark}/>}
       {lessonOpen && (
-        <ModalShell isDark={isDark} onClose={() => setLessonOpen(null)}>
-          <button type="button" className={ui.closeBtn(isDark)} onClick={() => setLessonOpen(null)}><X size={19}/></button>
-          <form onSubmit={addLesson}>
-            <h2 className={ui.h2}>Add lesson</h2>
+        <ModalShell isDark={isDark} onClose={closeLessonModal}>
+          <button type="button" className={ui.closeBtn(isDark)} onClick={closeLessonModal}><X size={19}/></button>
+          <form onSubmit={saveLesson}>
+            <h2 className={ui.h2}>{editingLessonIndex !== null ? 'Edit lesson' : 'Add lesson'}</h2>
             <FormField label="Lesson title" isDark={isDark}>
               <input required className={ui.input(isDark)} value={lessonForm.title} onChange={(e) => setLessonForm({ ...lessonForm, title: e.target.value })} placeholder="e.g. Introduction to the course"/>
             </FormField>
-            <FormField label="Lesson content" isDark={isDark}>
-              <textarea required className={ui.textarea(isDark)} value={lessonForm.content} onChange={(e) => setLessonForm({ ...lessonForm, content: e.target.value })} placeholder="Write the lesson material, notes, or instructions for students..." rows={6}/>
+            <FormField label="Lesson content (optional notes)" isDark={isDark}>
+              <textarea className={ui.textarea(isDark)} value={lessonForm.content} onChange={(e) => setLessonForm({ ...lessonForm, content: e.target.value })} placeholder="Optional notes or summary for this lesson..." rows={4}/>
+            </FormField>
+            <FormField label="Lesson PDF" isDark={isDark}>
+              <div className="flex flex-col gap-2">
+                <input type="file" accept="application/pdf" className={ui.input(isDark)} onChange={(e) => uploadPdf(e.target.files?.[0])} disabled={pdfUploading}/>
+                {pdfUploading && <p className={cn('text-xs', ui.muted(isDark))}><LoaderCircle className="inline animate-spin" size={14}/> Uploading PDF...</p>}
+                {lessonForm.pdfFilename && (
+                  <div className="flex items-center justify-between gap-2">
+                    <p className={cn('inline-flex items-center gap-1.5 text-xs text-emerald-400', ui.muted(isDark))}>
+                      <FileText size={14}/> {lessonForm.pdfFilename}
+                    </p>
+                    <button type="button" className="text-[10px] text-rose-300" onClick={() => setLessonForm({ ...lessonForm, pdfUrl: '', pdfFilename: '' })}>Remove</button>
+                  </div>
+                )}
+              </div>
+            </FormField>
+            <FormField label="Live session link (Google Meet, Zoom, etc.)" isDark={isDark}>
+              <input type="url" className={ui.input(isDark)} value={lessonForm.meetLink} onChange={(e) => setLessonForm({ ...lessonForm, meetLink: e.target.value })} placeholder="https://meet.google.com/abc-defg-hij"/>
             </FormField>
             <FormField label="Duration (minutes)" isDark={isDark}>
               <input type="number" min="1" className={ui.input(isDark)} value={lessonForm.duration} onChange={(e) => setLessonForm({ ...lessonForm, duration: e.target.value })}/>
@@ -147,7 +278,7 @@ export function LearningPanel({ view }) {
               <input type="checkbox" checked={lessonForm.isPreview} onChange={(e) => setLessonForm({ ...lessonForm, isPreview: e.target.checked })}/>
               Free preview lesson
             </label>
-            <button className={cn(ui.primary, ui.wide)}>Add lesson</button>
+            <button className={cn(ui.primary, ui.wide)}>{editingLessonIndex !== null ? 'Save changes' : 'Add lesson'}</button>
           </form>
         </ModalShell>
       )}
@@ -155,7 +286,7 @@ export function LearningPanel({ view }) {
   );
 }
 
-function OfferGrid({ view, items, open, isDark, onAddLesson, onEdit, onDelete, onTogglePublish }) {
+function OfferGrid({ view, items, open, isDark, onAddLesson, onEditLesson, onDeleteLesson, onEdit, onDelete, onTogglePublish }) {
   if (!items.length) {
     return (
       <EmptyBlock
@@ -179,10 +310,37 @@ function OfferGrid({ view, items, open, isDark, onAddLesson, onEdit, onDelete, o
           {view === 'Courses' && item.lessons?.length > 0 && (
             <ul className={cn('my-2 list-none p-0 text-[11px]', ui.muted(isDark))}>
               {item.lessons.map((l, i) => (
-                <li key={i} className={cn('border-b py-1', isDark ? 'border-violet-300/10' : 'border-violet-200/15')}>
-                  <b className={isDark ? 'text-[#f4f1fb]' : 'text-[#28243b]'}>{l.title}</b> · {l.duration}min{l.isPreview ? ' (preview)' : ''}
-                  {l.content && <p className={cn('mt-1 text-[10px] leading-snug', ui.muted(isDark))}>{l.content.slice(0, 120)}{l.content.length > 120 ? '…' : ''}</p>}
+                <li key={l._id || i} className={cn('border-b py-1.5 last:border-0', isDark ? 'border-violet-300/10' : 'border-violet-200/15')}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <b className={isDark ? 'text-[#f4f1fb]' : 'text-[#28243b]'}>{l.title}</b>
+                      <span className="ml-1 text-[10px]">{l.duration}min{l.isPreview ? ' (preview)' : ''}</span>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {l.pdfUrl && <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400"><FileText size={11}/> PDF</span>}
+                        {l.meetLink && <span className="inline-flex items-center gap-1 text-[10px] text-blue-400"><Video size={11}/> Live link</span>}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      {onEditLesson && (
+                        <button type="button" className={cn(actionBtn, 'grid place-items-center px-1.5 py-1')} onClick={() => onEditLesson(item._id, l, i)} title="Edit lesson">
+                          <Pencil size={12}/>
+                        </button>
+                      )}
+                      {onDeleteLesson && (
+                        <button type="button" className={cn(actionBtn, 'grid place-items-center bg-rose-400/10 px-1.5 py-1 text-rose-300')} onClick={() => onDeleteLesson(item._id, i)} title="Delete lesson">
+                          <Trash2 size={12}/>
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </li>
+              ))}
+            </ul>
+          )}
+          {view === 'Memberships' && item.perks?.length > 0 && (
+            <ul className={cn('my-2 list-none space-y-1 p-0 text-[11px]', ui.muted(isDark))}>
+              {item.perks.map((perk, i) => (
+                <li key={i}>✓ {perk}</li>
               ))}
             </ul>
           )}
@@ -192,16 +350,16 @@ function OfferGrid({ view, items, open, isDark, onAddLesson, onEdit, onDelete, o
             </b>
             <span className={cn('text-[10px]', ui.muted(isDark))}>{view === 'Courses' ? `${item.lessons?.length || 0} lessons` : `${item.members} members`}</span>
           </div>
-          {view === 'Courses' && (
+          {(view === 'Courses' || view === 'Memberships') && (
             <div className={cn('mt-3 flex flex-wrap gap-1.5 border-t pt-3', isDark ? 'border-violet-300/10' : 'border-violet-200/15')}>
-              {onAddLesson && <button type="button" className={actionBtn} onClick={() => onAddLesson(item._id)}>+ Lesson</button>}
+              {view === 'Courses' && onAddLesson && <button type="button" className={actionBtn} onClick={() => onAddLesson(item._id)}>+ Lesson</button>}
               {onTogglePublish && (
                 <button type="button" className={actionBtn} onClick={() => onTogglePublish(item)}>
                   {item.status === 'published' ? 'Unpublish' : 'Publish'}
                 </button>
               )}
-              {onEdit && <button type="button" className={cn(actionBtn, 'grid place-items-center px-2 py-1.5')} onClick={() => onEdit(item)} title="Edit course"><Pencil size={14}/></button>}
-              {onDelete && <button type="button" className={cn(actionBtn, 'grid place-items-center bg-rose-400/10 px-2 py-1.5 text-rose-300')} onClick={() => onDelete(item._id)} title="Delete course"><Trash2 size={14}/></button>}
+              {onEdit && <button type="button" className={cn(actionBtn, 'grid place-items-center px-2 py-1.5')} onClick={() => onEdit(item)} title={view === 'Memberships' ? 'Edit membership' : 'Edit course'}><Pencil size={14}/></button>}
+              {onDelete && <button type="button" className={cn(actionBtn, 'grid place-items-center bg-rose-400/10 px-2 py-1.5 text-rose-300')} onClick={() => onDelete(item._id)} title={view === 'Memberships' ? 'Delete membership' : 'Delete course'}><Trash2 size={14}/></button>}
             </div>
           )}
         </article>
@@ -270,8 +428,12 @@ function Modal({ view, form, setForm, close, submit, editing, isDark }) {
     <ModalShell isDark={isDark} onClose={close}>
       <button type="button" className={ui.closeBtn(isDark)} onClick={close}><X size={19}/></button>
       <form onSubmit={submit}>
-        <p className={ui.eyebrow}>{editing ? 'EDIT COURSE' : `NEW ${view.slice(0, -1).toUpperCase()}`}</p>
-        <h2 className={ui.h2}>{editing ? 'Update course' : view === 'Courses' ? 'Build a course' : view === 'Memberships' ? 'Set up a membership' : 'Share with your community'}</h2>
+        <p className={ui.eyebrow}>{editing ? (view === 'Memberships' ? 'EDIT MEMBERSHIP' : 'EDIT COURSE') : `NEW ${view.slice(0, -1).toUpperCase()}`}</p>
+        <h2 className={ui.h2}>
+          {editing
+            ? (view === 'Memberships' ? 'Update membership' : 'Update course')
+            : view === 'Courses' ? 'Build a course' : view === 'Memberships' ? 'Set up a membership' : 'Share with your community'}
+        </h2>
         {view === 'Courses' && (
           <>
             {field('title', 'Course title')}
@@ -313,7 +475,7 @@ function Modal({ view, form, setForm, close, submit, editing, isDark }) {
             </FormField>
           </>
         )}
-        <button className={cn(ui.primary, ui.wide)}><Send size={16}/>{editing ? 'Save changes' : 'Publish'}</button>
+        <button className={cn(ui.primary, ui.wide)}><Send size={16}/>{editing ? 'Save changes' : 'Create'}</button>
       </form>
     </ModalShell>
   );
