@@ -5,6 +5,8 @@ const lessonSchema = new Schema({
   content: { type: String, default: '', maxlength: 20000 },
   duration: { type: Number, default: 10 },
   isPreview: { type: Boolean, default: false },
+  chapter: { type: String, default: '' },
+  dripDays: { type: Number, default: 0, min: 0 },
   pdfUrl: { type: String, default: '' },
   pdfFilename: { type: String, default: '' },
   meetLink: { type: String, default: '' }
