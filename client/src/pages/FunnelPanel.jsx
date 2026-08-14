@@ -10,7 +10,7 @@ export function FunnelPanel() {
   const [funnels, setFunnels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', steps: [{ name: 'Landing page', type: 'landing', content: '' }] });
+  const [form, setForm] = useState({ name: '', description: '', slug: '', status: 'draft', steps: [{ name: 'Landing page', type: 'landing', content: '' }] });
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -24,6 +24,11 @@ export function FunnelPanel() {
       setFunnels([funnel, ...funnels]);
       setOpen(false);
     } catch (err) { setError(err.message); }
+  };
+
+  const publish = async (funnel) => {
+    const updated = await funnelApi.update(funnel._id, { status: funnel.status === 'published' ? 'draft' : 'published' });
+    setFunnels(funnels.map((f) => f._id === updated._id ? updated : f));
   };
 
   const remove = async (id) => {
@@ -69,9 +74,17 @@ export function FunnelPanel() {
                 isDark ? 'border-violet-300/10 text-[#aaa4b9]' : 'border-violet-200/15 text-[#817b94]'
               )}>
                 <span>{funnel.visits} visits · {funnel.conversions} conversions</span>
-                <button type="button" className="cursor-pointer border-0 bg-transparent text-violet-300" onClick={() => remove(funnel._id)}>
-                  <Trash2 size={14}/>
-                </button>
+                <div className="flex items-center gap-2">
+                  {funnel.slug && funnel.status === 'published' && (
+                    <a href={`/f/${funnel.slug}`} target="_blank" rel="noreferrer" className="text-violet-400 no-underline">View</a>
+                  )}
+                  <button type="button" className="cursor-pointer border-0 bg-transparent text-emerald-400" onClick={() => publish(funnel)}>
+                    {funnel.status === 'published' ? 'Unpublish' : 'Publish'}
+                  </button>
+                  <button type="button" className="cursor-pointer border-0 bg-transparent text-violet-300" onClick={() => remove(funnel._id)}>
+                    <Trash2 size={14}/>
+                  </button>
+                </div>
               </div>
             </article>
           ))}
@@ -87,6 +100,10 @@ export function FunnelPanel() {
             </FormField>
             <FormField label="Description" isDark={isDark}>
               <textarea className={ui.textarea(isDark)} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}/>
+            </FormField>
+            <FormField label="Public URL slug" isDark={isDark}>
+              <input required className={ui.input(isDark)} value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })} placeholder="my-launch-funnel"/>
+              <small className={cn('mt-1 block text-[10px]', ui.muted(isDark))}>/f/{form.slug || 'your-slug'}</small>
             </FormField>
             <FormField label="First step name" isDark={isDark}>
               <input required className={ui.input(isDark)} value={form.steps[0].name} onChange={(e) => setForm({ ...form, steps: [{ ...form.steps[0], name: e.target.value }] })}/>
