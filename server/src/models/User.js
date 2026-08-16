@@ -30,4 +30,4 @@ const userSchema = new Schema({
   customDomain: { type: String, default: '', trim: true, lowercase: true },
   fontFamily: { type: String, default: 'Inter' }
 }, { timestamps: true });
-export const User = model('User', userSchema);
+export const User = model('Creator-User', userSchema);
